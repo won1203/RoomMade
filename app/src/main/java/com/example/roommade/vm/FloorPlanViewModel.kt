@@ -9,6 +9,7 @@ import androidx.lifecycle.ViewModel
 import com.example.roommade.model.CatalogItem
 import com.example.roommade.model.FloorPlan
 import com.example.roommade.model.FurnCategory
+import com.example.roommade.model.FurnOrigin
 import com.example.roommade.model.Furniture
 import com.example.roommade.model.Opening
 import com.example.roommade.model.OpeningType
@@ -20,7 +21,6 @@ import kotlin.math.max
 
 class FloorPlanViewModel : ViewModel() {
 
-    // ---------- 기본 상태 ----------
     var roomSpec by mutableStateOf(RoomSpec())
         private set
 
@@ -30,7 +30,9 @@ class FloorPlanViewModel : ViewModel() {
     var selectedFurnitureIndex by mutableStateOf<Int?>(null)
         private set
 
-    // ---------- 스타일/카탈로그/추천 ----------
+    var conceptText by mutableStateOf("")
+        private set
+
     var styleTags by mutableStateOf(setOf<String>())
         private set
 
@@ -49,43 +51,100 @@ class FloorPlanViewModel : ViewModel() {
     var beforePlan by mutableStateOf<FloorPlan?>(null)
         private set
 
-    // 인벤토리(보유 가구 수량)
     var inventory by mutableStateOf<Map<FurnCategory, Int>>(emptyMap())
         private set
 
-    // ---------- 입력 단계 ----------
-    fun setRoomAreaPyeong(v: Float) {
-        roomSpec = roomSpec.copy(areaPyeong = v.coerceIn(2f, 80f))
-        recomputeRoom()
+    // ---------------------------------------------------------------------
+    // Room specification and base layout
+    // ---------------------------------------------------------------------
+
+    fun prepareStructure(
+        areaPyeong: Float,
+        aspectRatio: Float,
+        inventoryCounts: Map<FurnCategory, Int>
+    ) {
+        val clampedArea = areaPyeong.coerceIn(2f, 80f)
+        val clampedAspect = aspectRatio.coerceIn(0.5f, 2.0f)
+        roomSpec = roomSpec.copy(areaPyeong = clampedArea, aspect = clampedAspect)
+        inventory = inventoryCounts.filterValues { it > 0 }
+
+        floorPlan = buildBaseFloorPlan()
+        floorPlan = ensureDefaultOpenings(floorPlan)
+        spawnInventoryToPlan(resetPrevious = true)
+
+        beforePlan = null
+        selectedRec = null
+        recommendations = emptyList()
     }
 
-    fun setRoomAspect(v: Float) {
-        roomSpec = roomSpec.copy(aspect = v.coerceIn(0.5f, 2.0f))
-        recomputeRoom()
+    fun setRoomAreaPyeong(value: Float) {
+        roomSpec = roomSpec.copy(areaPyeong = value.coerceIn(2f, 80f))
+        floorPlan = floorPlan.copy(bounds = buildBounds(), scaleMmPerPx = computeMmPerPx())
+    }
+
+    fun setRoomAspect(value: Float) {
+        roomSpec = roomSpec.copy(aspect = value.coerceIn(0.5f, 2.0f))
+        floorPlan = floorPlan.copy(bounds = buildBounds(), scaleMmPerPx = computeMmPerPx())
     }
 
     fun setInventoryCounts(map: Map<FurnCategory, Int>) {
-        inventory = map
+        inventory = map.filterValues { it > 0 }
     }
 
-    private fun recomputeRoom() {
-        val targetWidthPx = 900f
-        val mmPerPx = (roomSpec.widthMm / targetWidthPx).coerceAtLeast(1f)
-        val widthPx = roomSpec.widthMm / mmPerPx
-        val heightPx = roomSpec.heightMm / mmPerPx
-        floorPlan = floorPlan.copy(
-            bounds = RectF(0f, 0f, widthPx, heightPx),
-            scaleMmPerPx = mmPerPx
+    private fun buildBaseFloorPlan(): FloorPlan {
+        return FloorPlan(
+            bounds = buildBounds(),
+            scaleMmPerPx = computeMmPerPx()
         )
     }
 
-    // ---------- 편집 단계 ----------
+    private fun buildBounds(): RectF {
+        val mmPerPx = computeMmPerPx()
+        val widthPx = roomSpec.widthMm / mmPerPx
+        val heightPx = roomSpec.heightMm / mmPerPx
+        return RectF(0f, 0f, widthPx, heightPx)
+    }
+
+    private fun computeMmPerPx(): Float {
+        val targetWidthPx = 900f
+        return (roomSpec.widthMm / targetWidthPx).coerceAtLeast(1f)
+    }
+
+    private fun ensureDefaultOpenings(plan: FloorPlan): FloorPlan {
+        val bounds = plan.bounds
+        val door = if (plan.doors.isNotEmpty()) plan.doors else listOf(
+            Opening(
+                OpeningType.DOOR,
+                RectF(
+                    bounds.left + 16f,
+                    bounds.bottom - 76f,
+                    bounds.left + 76f,
+                    bounds.bottom - 16f
+                )
+            )
+        )
+        val window = if (plan.windows.isNotEmpty()) plan.windows else listOf(
+            Opening(
+                OpeningType.WINDOW,
+                RectF(
+                    bounds.centerX() - 60f,
+                    bounds.top + 16f,
+                    bounds.centerX() + 60f,
+                    bounds.top + 46f
+                )
+            )
+        )
+        return plan.copy(doors = door, windows = window)
+    }
+
+    // ---------------------------------------------------------------------
+    // Floor plan editing helpers
+    // ---------------------------------------------------------------------
+
     fun addOpening(type: OpeningType, rect: RectF) {
         floorPlan = when (type) {
-            OpeningType.DOOR ->
-                floorPlan.copy(doors = floorPlan.doors + Opening(type, rect))
-            OpeningType.WINDOW ->
-                floorPlan.copy(windows = floorPlan.windows + Opening(type, rect))
+            OpeningType.DOOR -> floorPlan.copy(doors = floorPlan.doors + Opening(type, rect))
+            OpeningType.WINDOW -> floorPlan.copy(windows = floorPlan.windows + Opening(type, rect))
         }
     }
 
@@ -95,149 +154,140 @@ class FloorPlanViewModel : ViewModel() {
         )
     }
 
-    // 가구 이동: 방(bounds) 바깥으로 못 나가도록 클램프
     fun moveFurniture(index: Int, dx: Float, dy: Float) {
         val list = floorPlan.furnitures.toMutableList()
-        val f = list.getOrNull(index) ?: return
+        val furniture = list.getOrNull(index) ?: return
+        val bounds = floorPlan.bounds
+        val rect = furniture.rect
+        val width = rect.width()
+        val height = rect.height()
 
-        val b = floorPlan.bounds
-        val r = f.rect
-        val w = r.width()
-        val h = r.height()
-
-        val nl = (r.left + dx).coerceIn(b.left, b.right - w)
-        val nt = (r.top  + dy).coerceIn(b.top,  b.bottom - h)
-
-        list[index] = f.copy(rect = android.graphics.RectF(nl, nt, nl + w, nt + h))
+        val left = (rect.left + dx).coerceIn(bounds.left, bounds.right - width)
+        val top = (rect.top + dy).coerceIn(bounds.top, bounds.bottom - height)
+        list[index] = furniture.copy(rect = RectF(left, top, left + width, top + height))
         floorPlan = floorPlan.copy(furnitures = list)
     }
 
-    // 문/창 이동: 동일하게 클램프
-    fun moveOpening(isDoor: Boolean, index: Int, dx: Float, dy: Float) {
-        val b = floorPlan.bounds
+    fun moveFurnitureTo(index: Int, left: Float, top: Float) {
+        val list = floorPlan.furnitures.toMutableList()
+        val furniture = list.getOrNull(index) ?: return
+        val bounds = floorPlan.bounds
+        val rect = furniture.rect
+        val width = rect.width()
+        val height = rect.height()
+        val clampedLeft = left.coerceIn(bounds.left, bounds.right - width)
+        val clampedTop = top.coerceIn(bounds.top, bounds.bottom - height)
+        list[index] = furniture.copy(rect = RectF(clampedLeft, clampedTop, clampedLeft + width, clampedTop + height))
+        floorPlan = floorPlan.copy(furnitures = list)
+    }
 
+    fun moveOpening(isDoor: Boolean, index: Int, dx: Float, dy: Float) {
+        val bounds = floorPlan.bounds
         if (isDoor) {
             val list = floorPlan.doors.toMutableList()
-            val o = list.getOrNull(index) ?: return
-            val r = o.rect
-            val w = r.width()
-            val h = r.height()
-
-            val nl = (r.left + dx).coerceIn(b.left, b.right - w)
-            val nt = (r.top  + dy).coerceIn(b.top,  b.bottom - h)
-
-            list[index] = o.copy(rect = android.graphics.RectF(nl, nt, nl + w, nt + h))
+            val opening = list.getOrNull(index) ?: return
+            val rect = opening.rect
+            val width = rect.width()
+            val height = rect.height()
+            val left = (rect.left + dx).coerceIn(bounds.left, bounds.right - width)
+            val top = (rect.top + dy).coerceIn(bounds.top, bounds.bottom - height)
+            list[index] = opening.copy(rect = RectF(left, top, left + width, top + height))
             floorPlan = floorPlan.copy(doors = list)
         } else {
             val list = floorPlan.windows.toMutableList()
-            val o = list.getOrNull(index) ?: return
-            val r = o.rect
-            val w = r.width()
-            val h = r.height()
-
-            val nl = (r.left + dx).coerceIn(b.left, b.right - w)
-            val nt = (r.top  + dy).coerceIn(b.top,  b.bottom - h)
-
-            list[index] = o.copy(rect = android.graphics.RectF(nl, nt, nl + w, nt + h))
+            val opening = list.getOrNull(index) ?: return
+            val rect = opening.rect
+            val width = rect.width()
+            val height = rect.height()
+            val left = (rect.left + dx).coerceIn(bounds.left, bounds.right - width)
+            val top = (rect.top + dy).coerceIn(bounds.top, bounds.bottom - height)
+            list[index] = opening.copy(rect = RectF(left, top, left + width, top + height))
             floorPlan = floorPlan.copy(windows = list)
         }
     }
 
-    fun selectFurniture(index: Int?) { selectedFurnitureIndex = index }
+    fun selectFurniture(index: Int?) {
+        selectedFurnitureIndex = index
+    }
 
     fun resizeSelected(widthMm: Float, heightMm: Float) {
         val idx = selectedFurnitureIndex ?: return
         val list = floorPlan.furnitures.toMutableList()
-        val f = list[idx]
-        val pxW = (widthMm / floorPlan.scaleMmPerPx).coerceAtLeast(20f)
-        val pxH = (heightMm / floorPlan.scaleMmPerPx).coerceAtLeast(20f)
-        val left = f.rect.left
-        val top = f.rect.top
-        list[idx] = f.copy(rect = RectF(left, top, left + pxW, top + pxH))
+        val furniture = list.getOrNull(idx) ?: return
+        val pxWidth = (widthMm / floorPlan.scaleMmPerPx).coerceAtLeast(20f)
+        val pxHeight = (heightMm / floorPlan.scaleMmPerPx).coerceAtLeast(20f)
+        val left = furniture.rect.left
+        val top = furniture.rect.top
+        list[idx] = furniture.copy(rect = RectF(left, top, left + pxWidth, top + pxHeight))
         floorPlan = floorPlan.copy(furnitures = list)
     }
 
-    /**
-     * 📸 사진 기반 간이 자동 배치(문/창 1개씩 제안). 추후 ML 로직으로 대체 예정.
-     */
     fun autoDetectFrom(bitmap: Bitmap) {
-        val b = floorPlan.bounds
-        val w = b.width()
-        val h = b.height()
-
-        val newDoors = if (floorPlan.doors.isEmpty())
-            floorPlan.doors + Opening(
-                OpeningType.DOOR,
-                RectF(16f, h - 60f, 76f, h - 16f)
-            ) else floorPlan.doors
-
-        val newWindows = if (floorPlan.windows.isEmpty())
-            floorPlan.windows + Opening(
-                OpeningType.WINDOW,
-                RectF(w / 2f - 60f, 16f, w / 2f + 60f, 46f)
-            ) else floorPlan.windows
-
-        floorPlan = floorPlan.copy(doors = newDoors, windows = newWindows)
+        // Placeholder heuristic: ensure at least one door/window exists.
+        floorPlan = ensureDefaultOpenings(floorPlan)
     }
 
-    /**
-     * ✅ 인벤토리 수량을 기반으로 편집 화면 입장 시 가구를 자동 배치.
-     * - 기본: 기존 가구 전체를 비우고 격자처럼 좌→우, 줄바꿈하며 놓음.
-     * - 나중에 '출처(origin)'을 모델에 추가하면 INVENTORY만 교체하는 방식으로 변경 가능.
-     */
     fun spawnInventoryToPlan(resetPrevious: Boolean = true) {
         val mmPerPx = floorPlan.scaleMmPerPx.coerceAtLeast(1f)
-        val b = floorPlan.bounds
+        val bounds = floorPlan.bounds
+        val base = if (resetPrevious) emptyList() else floorPlan.furnitures
+        val additions = mutableListOf<Furniture>()
+        val cursor = PlacementCursor(bounds)
 
-        // 0) 기존 가구 초기화 정책
-        val baseList = if (resetPrevious) emptyList() else floorPlan.furnitures
-
-        // 1) 카테고리별 기본 크기(mm)
-        fun defaultSizeMm(cat: FurnCategory): Pair<Int, Int> = when (cat) {
-            FurnCategory.BED -> 1500 to 2000
-            FurnCategory.DESK -> 1200 to 600
-            FurnCategory.SOFA -> 1600 to 800
-            FurnCategory.WARDROBE -> 1200 to 600
-            FurnCategory.TABLE -> 800 to 800
-            else -> 800 to 600
-        }
-
-        // 2) 격자 배치
-        var x = 16f
-        var y = 16f
-        val gap = 12f
-        val maxRight = b.right - 16f
-
-        val spawned = mutableListOf<Furniture>()
-        inventory.forEach { (cat, qty) ->
-            repeat(qty.coerceAtLeast(0)) {
-                val (wMm, hMm) = defaultSizeMm(cat)
-                val wPx = wMm / mmPerPx
-                val hPx = hMm / mmPerPx
-
-                if (x + wPx > maxRight) {
-                    x = 16f
-                    y += hPx + gap
-                }
-
-                val r = RectF(x, y, x + wPx, y + hPx)
-                spawned += Furniture(cat, r)
-                x += wPx + gap
+        inventory.forEach { (category, qty) ->
+            val count = qty.coerceAtLeast(0)
+            repeat(count) {
+                val (widthMm, heightMm) = defaultSizeMm(category)
+                val widthPx = widthMm / mmPerPx
+                val heightPx = heightMm / mmPerPx
+                val (left, top) = cursor.next(widthPx, heightPx)
+                val rect = RectF(left, top, left + widthPx, top + heightPx)
+                additions += Furniture(category, rect, FurnOrigin.INVENTORY)
             }
         }
 
-        floorPlan = floorPlan.copy(furnitures = baseList + spawned)
+        floorPlan = floorPlan.copy(furnitures = base + additions)
     }
 
-    // ---------- 스타일/카탈로그 ----------
-    fun toggleStyle(tag: String) {
-        styleTags = if (tag in styleTags) styleTags - tag else styleTags + tag
+    private fun defaultSizeMm(category: FurnCategory): Pair<Int, Int> = when (category) {
+        FurnCategory.BED -> 1500 to 2000
+        FurnCategory.DESK -> 1200 to 600
+        FurnCategory.SOFA -> 1800 to 900
+        FurnCategory.WARDROBE -> 1200 to 600
+        FurnCategory.TABLE -> 800 to 800
+        FurnCategory.OTHER -> 700 to 700
     }
 
-    fun buildStyleCatalog() {
-        val base = demoCatalog()
-        recommendedCatalog = base.items.sortedByDescending {
-            it.styleTags.intersect(styleTags).size
+    // ---------------------------------------------------------------------
+    // Style analysis and catalog selection
+    // ---------------------------------------------------------------------
+
+    fun analyzeConcept(text: String) {
+        conceptText = text.trim()
+        val tags = deriveStyleTags(conceptText)
+        styleTags = if (tags.isEmpty()) defaultStyleTags() else tags
+        buildRecommendationCatalog()
+    }
+
+    fun buildRecommendationCatalog() {
+        val catalog = demoCatalog().items
+        val prioritized = if (styleTags.isEmpty()) {
+            catalog
+        } else {
+            val filtered = catalog.filter { it.styleTags.intersect(styleTags).isNotEmpty() }
+            if (filtered.isEmpty()) catalog else filtered
+        }.sortedWith(
+            compareByDescending<CatalogItem> { it.styleTags.count { tag -> tag in styleTags } }
+                .thenBy { it.priceKRW }
+        )
+
+        recommendedCatalog = prioritized
+        val availableIds = prioritized.map { it.id }.toSet()
+        val keep = chosenCatalog.filter { it in availableIds }.toSet()
+        chosenCatalog = if (keep.isNotEmpty()) {
+            keep
+        } else {
+            pickDiverseDefaults(prioritized, 4)
         }
     }
 
@@ -245,52 +295,53 @@ class FloorPlanViewModel : ViewModel() {
         chosenCatalog = if (id in chosenCatalog) chosenCatalog - id else chosenCatalog + id
     }
 
-    fun spawnChosenCatalogToPlan() {
-        val mmPerPx = floorPlan.scaleMmPerPx.coerceAtLeast(1f)
-        val pick = recommendedCatalog.filter { it.id in chosenCatalog }
-        var x = 16f; var y = 16f
-        pick.forEach { item ->
-            val w = item.defaultWidthMm / mmPerPx
-            val h = item.defaultHeightMm / mmPerPx
-            addFurniture(item.category, RectF(x, y, x + w, y + h))
-            x += w + 12f
-            if (x + w > floorPlan.bounds.right - 16f) {
-                x = 16f; y += h + 12f
-            }
-        }
-    }
+    // ---------------------------------------------------------------------
+    // Recommendation generation and selection
+    // ---------------------------------------------------------------------
 
-    // ---------- 추천(A/B/C) ----------
     fun generateRecommendations() {
         beforePlan = floorPlan
-        val allowedCats = recommendedCatalog
-            .filter { it.id in chosenCatalog }
-            .map { it.category }
-            .toSet()
-        fun fit(fp: FloorPlan) =
-            fp.copy(furnitures = fp.furnitures.filter { it.category in allowedCats })
-
-        val base = fit(floorPlan)
-        val a = base.copy(furnitures = base.furnitures.map { f ->
-            when (f.category) {
-                FurnCategory.BED -> placeAwayFromDoor(f, base)
-                FurnCategory.DESK -> placeNearWindow(f, base)
-                else -> snapToWall(f, base)
+        val base = applyCatalogSelections(floorPlan)
+        val variantA = base.copy(
+            furnitures = base.furnitures.map { furniture ->
+                when (furniture.category) {
+                    FurnCategory.BED -> placeAwayFromDoor(furniture, base)
+                    FurnCategory.DESK -> placeNearWindow(furniture, base)
+                    else -> snapToWall(furniture, base)
+                }
             }
-        })
-        val b = base.copy(furnitures = base.furnitures.map { f ->
-            when (f.category) {
-                FurnCategory.BED -> centerOnWall(f, base)
-                FurnCategory.DESK -> sideWall(f, base)
-                else -> snapToWall(f, base)
+        )
+        val variantB = base.copy(
+            furnitures = base.furnitures.map { furniture ->
+                when (furniture.category) {
+                    FurnCategory.BED -> centerOnWall(furniture, base)
+                    FurnCategory.DESK -> sideWall(furniture, base)
+                    FurnCategory.TABLE -> centerOnWall(furniture, base)
+                    else -> snapToWall(furniture, base)
+                }
             }
-        })
-        val c = tidyLayout(base)
+        )
+        val variantC = tidyLayout(base)
 
         recommendations = listOf(
-            Recommendation("A", "A안 · Cozy", "침대는 문에서 멀리, 책상은 창가. 휴식/업무 분리.", a),
-            Recommendation("B", "B안 · Minimal", "큰 가구 중앙 정렬로 정돈감.", b),
-            Recommendation("C", "C안 · Tidy", "겹침 제거 + 벽 스냅.", c)
+            Recommendation(
+                id = "A",
+                title = "Plan A · Cozy flow",
+                rationale = "Keeps the bed away from the door and places the desk near daylight.",
+                plan = variantA
+            ),
+            Recommendation(
+                id = "B",
+                title = "Plan B · Minimal balance",
+                rationale = "Aligns major furniture along walls for maximum open center space.",
+                plan = variantB
+            ),
+            Recommendation(
+                id = "C",
+                title = "Plan C · Tidy grid",
+                rationale = "Uses collision-free snapping to keep circulation clear.",
+                plan = variantC
+            )
         )
     }
 
@@ -301,136 +352,354 @@ class FloorPlanViewModel : ViewModel() {
 
     fun buildShoppingForSelection(): List<CatalogItem> {
         val rec = selectedRec ?: return emptyList()
-        val cats = rec.plan.furnitures.map { it.category }.toSet()
-        val pool = demoCatalog().items.filter { it.category in cats }
-        return pool
-            .sortedByDescending { it.styleTags.intersect(styleTags).size }
-            .groupBy { it.category }
-            .flatMap { (_, lst) -> lst.take(3) }
-    }
-
-    // ---------- 배치 휴리스틱 ----------
-    private fun snapToWall(f: Furniture, fp: FloorPlan, padding: Float = 8f): Furniture {
-        val r = f.rect; val b = fp.bounds
-        val gaps = listOf(
-            r.left - b.left to "L", b.right - r.right to "R",
-            r.top - b.top to "T", b.bottom - r.bottom to "B"
-        )
-        val (minGap, side) = gaps.minBy { it.first }
-        val dx: Float; val dy: Float
-        when (side) {
-            "L" -> { dx = -(minGap - padding); dy = 0f }
-            "R" -> { dx = (minGap - padding); dy = 0f }
-            "T" -> { dx = 0f; dy = -(minGap - padding) }
-            else -> { dx = 0f; dy = (minGap - padding) }
-        }
-        return f.copy(rect = RectF(r.left + dx, r.top + dy, r.right + dx, r.bottom + dy))
-    }
-
-    private fun placeNearWindow(f: Furniture, fp: FloorPlan): Furniture {
-        val win = fp.windows.firstOrNull() ?: return snapToWall(f, fp)
-        val r = f.rect; val b = fp.bounds
-        val tx = (win.rect.centerX() - r.width()/2f)
-            .coerceIn(b.left + 8f, b.right - r.width() - 8f)
-        val ty = (win.rect.bottom + 16f)
-            .coerceIn(b.top + 8f, b.bottom - r.height() - 8f)
-        return f.copy(rect = RectF(tx, ty, tx + r.width(), ty + r.height()))
-    }
-
-    private fun placeAwayFromDoor(f: Furniture, fp: FloorPlan): Furniture {
-        val door = fp.doors.firstOrNull(); val r = f.rect; val b = fp.bounds
-        val corners = listOf(
-            RectF(b.left+8f, b.top+8f, b.left+8f + r.width(), b.top+8f + r.height()),
-            RectF(b.right - r.width()-8f, b.top+8f, b.right-8f, b.top+8f + r.height()),
-            RectF(b.left+8f, b.bottom - r.height()-8f, b.left+8f + r.width(), b.bottom-8f),
-            RectF(b.right - r.width()-8f, b.bottom - r.height()-8f, b.right-8f, b.bottom-8f)
-        )
-        if (door == null) return f.copy(rect = corners.last())
-        val best = corners.maxBy { c ->
-            val cx = c.centerX(); val cy = c.centerY()
-            val dx = (door.rect.centerX() - cx); val dy = (door.rect.centerY() - cy)
-            dx*dx + dy*dy
-        }
-        return f.copy(rect = best)
-    }
-
-    private fun centerOnWall(f: Furniture, fp: FloorPlan): Furniture {
-        val r = f.rect; val b = fp.bounds
-        return if (b.width() >= b.height()) {
-            val x = b.centerX() - r.width()/2f
-            f.copy(rect = RectF(x, b.top+8f, x + r.width(), b.top+8f + r.height()))
+        val categories = rec.plan.furnitures.map { it.category }.toSet()
+        val source = if (recommendedCatalog.isNotEmpty()) {
+            recommendedCatalog
         } else {
-            val y = b.centerY() - r.height()/2f
-            f.copy(rect = RectF(b.left+8f, y, b.left+8f + r.width(), y + r.height()))
+            demoCatalog().items
+        }
+        return source
+            .filter { it.category in categories }
+            .sortedByDescending { it.styleTags.count { tag -> tag in styleTags } }
+            .groupBy { it.category }
+            .flatMap { (_, items) -> items.take(3) }
+    }
+
+    // ---------------------------------------------------------------------
+    // Internal helpers for layout and style rules
+    // ---------------------------------------------------------------------
+
+    private fun applyCatalogSelections(plan: FloorPlan): FloorPlan {
+        val selectedItems = recommendedCatalog.filter { it.id in chosenCatalog }
+        if (selectedItems.isEmpty()) return plan
+
+        val mmPerPx = plan.scaleMmPerPx.coerceAtLeast(1f)
+        val bounds = plan.bounds
+        val cursor = PlacementCursor(bounds)
+        val updated = plan.furnitures.toMutableList()
+
+        selectedItems.forEach { item ->
+            val widthPx = item.defaultWidthMm / mmPerPx
+            val heightPx = item.defaultHeightMm / mmPerPx
+            val index = updated.indexOfFirst { it.category == item.category }
+            val rect = if (index >= 0) {
+                val baseRect = updated[index].rect
+                val cx = baseRect.centerX()
+                val cy = baseRect.centerY()
+                RectF(
+                    (cx - widthPx / 2f).coerceIn(bounds.left, bounds.right - widthPx),
+                    (cy - heightPx / 2f).coerceIn(bounds.top, bounds.bottom - heightPx),
+                    0f,
+                    0f
+                ).apply {
+                    right = left + widthPx
+                    bottom = top + heightPx
+                }
+            } else {
+                val (left, top) = cursor.next(widthPx, heightPx)
+                RectF(left, top, left + widthPx, top + heightPx)
+            }
+            val replacement = Furniture(item.category, rect, FurnOrigin.CATALOG)
+            if (index >= 0) {
+                updated[index] = replacement
+            } else {
+                updated += replacement
+            }
+        }
+
+        return plan.copy(furnitures = updated)
+    }
+
+    private fun deriveStyleTags(text: String): Set<String> {
+        if (text.isBlank()) return emptySet()
+        val normalized = text.lowercase()
+        val hits = mutableSetOf<String>()
+        for (rule in styleRules) {
+            if (rule.keywords.any { normalized.contains(it) }) {
+                hits += rule.tags
+            }
+        }
+        return hits
+    }
+
+    private fun defaultStyleTags(): Set<String> = setOf("Minimal")
+
+    private fun pickDiverseDefaults(items: List<CatalogItem>, limit: Int): Set<String> {
+        val result = mutableListOf<String>()
+        val usedCategories = mutableSetOf<FurnCategory>()
+        for (item in items) {
+            if (result.size >= limit) break
+            if (item.category !in usedCategories || usedCategories.size >= limit) {
+                result += item.id
+                usedCategories += item.category
+            }
+        }
+        return result.toSet()
+    }
+
+    private fun snapToWall(furniture: Furniture, plan: FloorPlan, padding: Float = 8f): Furniture {
+        val rect = furniture.rect
+        val bounds = plan.bounds
+        val gaps = listOf(
+            rect.left - bounds.left to Direction.LEFT,
+            bounds.right - rect.right to Direction.RIGHT,
+            rect.top - bounds.top to Direction.TOP,
+            bounds.bottom - rect.bottom to Direction.BOTTOM
+        )
+        val (_, side) = gaps.minBy { it.first }
+        val dx: Float
+        val dy: Float
+        when (side) {
+            Direction.LEFT -> {
+                dx = -(rect.left - bounds.left - padding)
+                dy = 0f
+            }
+            Direction.RIGHT -> {
+                dx = bounds.right - rect.right - padding
+                dy = 0f
+            }
+            Direction.TOP -> {
+                dx = 0f
+                dy = -(rect.top - bounds.top - padding)
+            }
+            Direction.BOTTOM -> {
+                dx = 0f
+                dy = bounds.bottom - rect.bottom - padding
+            }
+        }
+        val moved = RectF(rect.left + dx, rect.top + dy, rect.right + dx, rect.bottom + dy)
+        return furniture.copy(rect = moved)
+    }
+
+    private fun placeNearWindow(furniture: Furniture, plan: FloorPlan): Furniture {
+        val window = plan.windows.firstOrNull() ?: return snapToWall(furniture, plan)
+        val rect = furniture.rect
+        val bounds = plan.bounds
+        val width = rect.width()
+        val height = rect.height()
+        val left = (window.rect.centerX() - width / 2f).coerceIn(bounds.left + 8f, bounds.right - width - 8f)
+        val top = (window.rect.bottom + 16f).coerceIn(bounds.top + 8f, bounds.bottom - height - 8f)
+        return furniture.copy(rect = RectF(left, top, left + width, top + height))
+    }
+
+    private fun placeAwayFromDoor(furniture: Furniture, plan: FloorPlan): Furniture {
+        val door = plan.doors.firstOrNull()
+        val rect = furniture.rect
+        val bounds = plan.bounds
+        val candidates = listOf(
+            RectF(bounds.left + 8f, bounds.top + 8f, bounds.left + 8f + rect.width(), bounds.top + 8f + rect.height()),
+            RectF(bounds.right - rect.width() - 8f, bounds.top + 8f, bounds.right - 8f, bounds.top + 8f + rect.height()),
+            RectF(bounds.left + 8f, bounds.bottom - rect.height() - 8f, bounds.left + 8f + rect.width(), bounds.bottom - 8f),
+            RectF(bounds.right - rect.width() - 8f, bounds.bottom - rect.height() - 8f, bounds.right - 8f, bounds.bottom - 8f)
+        )
+        if (door == null) return furniture.copy(rect = candidates.last())
+        val farthest = candidates.maxBy { candidate ->
+            val dx = door.rect.centerX() - candidate.centerX()
+            val dy = door.rect.centerY() - candidate.centerY()
+            dx * dx + dy * dy
+        }
+        return furniture.copy(rect = farthest)
+    }
+
+    private fun centerOnWall(furniture: Furniture, plan: FloorPlan): Furniture {
+        val rect = furniture.rect
+        val bounds = plan.bounds
+        return if (bounds.width() >= bounds.height()) {
+            val left = bounds.centerX() - rect.width() / 2f
+            val top = bounds.top + 8f
+            furniture.copy(rect = RectF(left, top, left + rect.width(), top + rect.height()))
+        } else {
+            val left = bounds.left + 8f
+            val top = bounds.centerY() - rect.height() / 2f
+            furniture.copy(rect = RectF(left, top, left + rect.width(), top + rect.height()))
         }
     }
 
-    private fun sideWall(f: Furniture, fp: FloorPlan): Furniture {
-        val r = f.rect; val b = fp.bounds
-        val y = (b.centerY() - r.height()/2f)
-            .coerceIn(b.top+8f, b.bottom - r.height() - 8f)
-        return f.copy(rect = RectF(b.right - r.width() - 8f, y, b.right - 8f, y + r.height()))
+    private fun sideWall(furniture: Furniture, plan: FloorPlan): Furniture {
+        val rect = furniture.rect
+        val bounds = plan.bounds
+        val left = bounds.right - rect.width() - 8f
+        val top = (bounds.centerY() - rect.height() / 2f).coerceIn(bounds.top + 8f, bounds.bottom - rect.height() - 8f)
+        return furniture.copy(rect = RectF(left, top, left + rect.width(), top + rect.height()))
     }
 
-    private fun tidyLayout(fp: FloorPlan): FloorPlan {
-        var current = fp.copy(furnitures = fp.furnitures.map { snapToWall(it, fp, 6f) })
+    private fun tidyLayout(plan: FloorPlan): FloorPlan {
+        var current = plan.copy(furnitures = plan.furnitures.map { snapToWall(it, plan, 6f) })
         repeat(6) {
             val list = current.furnitures.toMutableList()
             var changed = false
-            for (i in 0 until list.size) for (j in i + 1 until list.size) {
-                val a = list[i].rect; val b = list[j].rect
-                if (RectF.intersects(a, b)) {
-                    val dy = max(6f, (a.bottom - b.top) + 6f)
-                    list[j] = list[j].copy(
-                        rect = RectF(b.left, b.top + dy, b.right, b.bottom + dy)
-                    )
-                    changed = true
+            for (i in list.indices) {
+                for (j in i + 1 until list.size) {
+                    val a = list[i].rect
+                    val b = list[j].rect
+                    if (RectF.intersects(a, b)) {
+                        val dy = max(6f, (a.bottom - b.top) + 6f)
+                        list[j] = list[j].copy(
+                            rect = RectF(b.left, b.top + dy, b.right, b.bottom + dy)
+                        )
+                        changed = true
+                    }
                 }
             }
-            current = current.copy(furnitures = list)
-            if (!changed) return@repeat
+            current = current.copy(furnitures = list.map { fitInside(it, current.bounds) })
+            if (!changed) return current
         }
         return current
     }
 
-    // ---------- 더미 카탈로그 ----------
+    private fun fitInside(furniture: Furniture, bounds: RectF): Furniture {
+        val rect = furniture.rect
+        val width = rect.width()
+        val height = rect.height()
+        val left = rect.left.coerceIn(bounds.left, bounds.right - width)
+        val top = rect.top.coerceIn(bounds.top, bounds.bottom - height)
+        return furniture.copy(rect = RectF(left, top, left + width, top + height))
+    }
+
+    private val styleRules = listOf(
+        StyleRule(
+            keywords = listOf("natural", "nature", "wood", "linen", "내추럴", "우드"),
+            tags = setOf("Natural", "Warm")
+        ),
+        StyleRule(
+            keywords = listOf("warm", "cozy", "comfort", "아늑", "따뜻"),
+            tags = setOf("Warm", "Cozy")
+        ),
+        StyleRule(
+            keywords = listOf("minimal", "clean", "simple", "미니멀"),
+            tags = setOf("Minimal")
+        ),
+        StyleRule(
+            keywords = listOf("modern", "sleek", "contemporary", "모던"),
+            tags = setOf("Modern")
+        ),
+        StyleRule(
+            keywords = listOf("vintage", "retro", "빈티지"),
+            tags = setOf("Vintage")
+        ),
+        StyleRule(
+            keywords = listOf("industrial", "metal", "콘크리트", "인더스트리얼"),
+            tags = setOf("Industrial")
+        ),
+        StyleRule(
+            keywords = listOf("light", "bright", "white"),
+            tags = setOf("Bright")
+        )
+    )
+
     private fun demoCatalog() = StyleCatalog(
         items = listOf(
             CatalogItem(
-                "bed_min_01", "로우프레임 침대", FurnCategory.BED,
-                setOf("미니멀", "밝은"), 1500, 2000, 299000,
-                listOf(ShopLink("N스탠드", "https://example.com/bed_min_01"))
+                id = "bed_natural_01",
+                name = "Oak frame platform bed",
+                category = FurnCategory.BED,
+                styleTags = setOf("Natural", "Warm"),
+                defaultWidthMm = 1600,
+                defaultHeightMm = 2000,
+                priceKRW = 459_000,
+                shopLinks = listOf(ShopLink("Nordico", "https://example.com/bed_natural_01"))
             ),
             CatalogItem(
-                "bed_warm_01", "우드톤 침대", FurnCategory.BED,
-                setOf("우드톤", "아늑"), 1600, 2000, 459000,
-                listOf(ShopLink("W몰", "https://example.com/bed_warm_01"))
+                id = "bed_minimal_01",
+                name = "Low profile fabric bed",
+                category = FurnCategory.BED,
+                styleTags = setOf("Minimal", "Bright"),
+                defaultWidthMm = 1500,
+                defaultHeightMm = 2000,
+                priceKRW = 329_000,
+                shopLinks = listOf(ShopLink("CalmLiving", "https://example.com/bed_minimal_01"))
             ),
             CatalogItem(
-                "desk_min_01", "화이트 데스크 1200", FurnCategory.DESK,
-                setOf("미니멀", "밝은"), 1200, 600, 149000,
-                listOf(ShopLink("A샵", "https://example.com/desk_min_01"))
+                id = "desk_modern_01",
+                name = "Walnut study desk 1400",
+                category = FurnCategory.DESK,
+                styleTags = setOf("Modern", "Warm"),
+                defaultWidthMm = 1400,
+                defaultHeightMm = 700,
+                priceKRW = 259_000,
+                shopLinks = listOf(ShopLink("BeamDesk", "https://example.com/desk_modern_01"))
             ),
             CatalogItem(
-                "desk_walnut_01", "월넛 데스크 1400", FurnCategory.DESK,
-                setOf("우드톤", "모던"), 1400, 700, 259000,
-                listOf(ShopLink("B샵", "https://example.com/desk_walnut_01"))
+                id = "desk_minimal_01",
+                name = "White steel desk 1200",
+                category = FurnCategory.DESK,
+                styleTags = setOf("Minimal", "Bright"),
+                defaultWidthMm = 1200,
+                defaultHeightMm = 600,
+                priceKRW = 159_000,
+                shopLinks = listOf(ShopLink("SimpleLine", "https://example.com/desk_minimal_01"))
             ),
             CatalogItem(
-                "sofa_min_01", "2인 미니멀 소파", FurnCategory.SOFA,
-                setOf("미니멀", "밝은"), 1600, 800, 329000,
-                listOf(ShopLink("C샵", "https://example.com/sofa_min_01"))
+                id = "sofa_cozy_01",
+                name = "Two-seat boucle sofa",
+                category = FurnCategory.SOFA,
+                styleTags = setOf("Cozy", "Warm"),
+                defaultWidthMm = 1700,
+                defaultHeightMm = 900,
+                priceKRW = 389_000,
+                shopLinks = listOf(ShopLink("SoftNest", "https://example.com/sofa_cozy_01"))
             ),
             CatalogItem(
-                "ward_min_01", "미닫이 옷장 1200", FurnCategory.WARDROBE,
-                setOf("미니멀"), 1200, 600, 279000,
-                listOf(ShopLink("D샵", "https://example.com/ward_min_01"))
+                id = "wardrobe_modern_01",
+                name = "Sliding wardrobe 1200",
+                category = FurnCategory.WARDROBE,
+                styleTags = setOf("Modern", "Minimal"),
+                defaultWidthMm = 1200,
+                defaultHeightMm = 600,
+                priceKRW = 299_000,
+                shopLinks = listOf(ShopLink("ClosetLab", "https://example.com/wardrobe_modern_01"))
             ),
             CatalogItem(
-                "table_light_01", "원형 테이블 800", FurnCategory.TABLE,
-                setOf("밝은", "캐주얼"), 800, 800, 99000,
-                listOf(ShopLink("E샵", "https://example.com/table_light_01"))
+                id = "table_natural_01",
+                name = "Round dining table 900",
+                category = FurnCategory.TABLE,
+                styleTags = setOf("Natural", "Bright"),
+                defaultWidthMm = 900,
+                defaultHeightMm = 900,
+                priceKRW = 189_000,
+                shopLinks = listOf(ShopLink("Oak&Co", "https://example.com/table_natural_01"))
+            ),
+            CatalogItem(
+                id = "table_industrial_01",
+                name = "Metal cafe table 800",
+                category = FurnCategory.TABLE,
+                styleTags = setOf("Industrial", "Modern"),
+                defaultWidthMm = 800,
+                defaultHeightMm = 800,
+                priceKRW = 210_000,
+                shopLinks = listOf(ShopLink("SteelCraft", "https://example.com/table_industrial_01"))
             )
         )
     )
+
+    private data class StyleRule(
+        val keywords: List<String>,
+        val tags: Set<String>
+    )
+
+    private class PlacementCursor(
+        private val bounds: RectF,
+        private val padding: Float = 16f,
+        private val gap: Float = 12f
+    ) {
+        private var cursorX = bounds.left + padding
+        private var cursorY = bounds.top + padding
+        private val maxRight = bounds.right - padding
+
+        fun next(width: Float, height: Float): Pair<Float, Float> {
+            if (cursorX + width > maxRight) {
+                cursorX = bounds.left + padding
+                cursorY += height + gap
+            }
+            val maxTop = (bounds.bottom - height - padding).coerceAtLeast(bounds.top + padding)
+            val yClamped = cursorY.coerceIn(bounds.top + padding, maxTop)
+            val x = cursorX
+            val y = yClamped
+            cursorX += width + gap
+            cursorY = (yClamped + height + gap).coerceAtMost(maxTop)
+            return x to y
+        }
+    }
+
+    private enum class Direction { LEFT, RIGHT, TOP, BOTTOM }
 }

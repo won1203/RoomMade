@@ -10,7 +10,6 @@ import androidx.compose.ui.unit.dp
 
 @Composable
 fun StartScreen(
-    onStartPhoto: () -> Unit,  // 사진 보조 입력(베타)
     onStartManual: () -> Unit  // 권장: 가이드대로 시작 (RoomSize)
 ) {
     Box(Modifier.fillMaxSize()) {
@@ -44,18 +43,6 @@ fun StartScreen(
                     .height(52.dp)
             ) {
                 Text("🚀 가이드대로 시작 (권장)")
-            }
-
-            Spacer(Modifier.height(12.dp))
-
-            // 사진 기반 보조(베타)
-            OutlinedButton(
-                onClick = onStartPhoto,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp)
-            ) {
-                Text("📷 사진으로 보조 입력 (베타)")
             }
 
             Spacer(Modifier.height(24.dp))

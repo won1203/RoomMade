@@ -24,18 +24,15 @@ android {
         compose = true
     }
 
-    // ✅ Java 17로 맞추기
+    // Java 21 설정
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
     }
-
-    // (선택) Kotlin DSL에선 toolchain 권장
-    // kotlinOptions { jvmTarget = "17" } 만 써도 되지만 아래가 더 일관됨
 }
 
 kotlin {
-    jvmToolchain(17) // ✅ Kotlin도 17로
+    jvmToolchain(21) // Kotlin도 Java 21 사용
 }
 
 dependencies {
@@ -56,16 +53,6 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.8.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
-
-    // CameraX
-    val cameraX = "1.3.4"
-    implementation("androidx.camera:camera-core:$cameraX")
-    implementation("androidx.camera:camera-camera2:$cameraX")
-    implementation("androidx.camera:camera-lifecycle:$cameraX")
-    implementation("androidx.camera:camera-view:$cameraX")
-
-    // 이미지 로딩
-    implementation("io.coil-kt:coil-compose:2.7.0")
 
     // Material Components (XML 테마 사용 시)
     implementation("com.google.android.material:material:1.12.0")
