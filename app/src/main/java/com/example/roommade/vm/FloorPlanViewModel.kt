@@ -1,11 +1,18 @@
 package com.example.roommade.vm
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.RectF
+import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
+import com.example.roommade.ml.StyleAnalyzer
+import com.example.roommade.ml.StyleAnalyzer.StyleProbability
+import com.example.roommade.ml.StyleAnalyzerProvider
 import com.example.roommade.model.CatalogItem
 import com.example.roommade.model.FloorPlan
 import com.example.roommade.model.FurnCategory
@@ -18,8 +25,15 @@ import com.example.roommade.model.RoomSpec
 import com.example.roommade.model.ShopLink
 import com.example.roommade.model.StyleCatalog
 import kotlin.math.max
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
-class FloorPlanViewModel : ViewModel() {
+enum class AnalysisState { Idle, Running, Success, Failed }
+
+class FloorPlanViewModel(
+    private val styleAnalyzer: StyleAnalyzer? = null
+) : ViewModel() {
 
     var roomSpec by mutableStateOf(RoomSpec())
         private set
@@ -34,6 +48,18 @@ class FloorPlanViewModel : ViewModel() {
         private set
 
     var styleTags by mutableStateOf(setOf<String>())
+        private set
+
+    var styleProbabilities by mutableStateOf<List<StyleProbability>>(emptyList())
+        private set
+
+    var isAnalyzingConcept by mutableStateOf(false)
+        private set
+
+    var analysisState by mutableStateOf(AnalysisState.Idle)
+        private set
+
+    var analysisErrorMessage by mutableStateOf<String?>(null)
         private set
 
     var recommendedCatalog by mutableStateOf<List<CatalogItem>>(emptyList())
@@ -53,6 +79,8 @@ class FloorPlanViewModel : ViewModel() {
 
     var inventory by mutableStateOf<Map<FurnCategory, Int>>(emptyMap())
         private set
+
+    private var analyzeJob: Job? = null
 
     // ---------------------------------------------------------------------
     // Room specification and base layout
@@ -75,6 +103,8 @@ class FloorPlanViewModel : ViewModel() {
         beforePlan = null
         selectedRec = null
         recommendations = emptyList()
+        analysisState = AnalysisState.Idle
+        analysisErrorMessage = null
     }
 
     fun setRoomAreaPyeong(value: Float) {
@@ -264,9 +294,51 @@ class FloorPlanViewModel : ViewModel() {
 
     fun analyzeConcept(text: String) {
         conceptText = text.trim()
-        val tags = deriveStyleTags(conceptText)
-        styleTags = if (tags.isEmpty()) defaultStyleTags() else tags
-        buildRecommendationCatalog()
+        analyzeJob?.cancel()
+
+        if (conceptText.isBlank()) {
+            styleProbabilities = emptyList()
+            styleTags = defaultStyleTags()
+            analysisState = AnalysisState.Success
+            analysisErrorMessage = null
+            buildRecommendationCatalog()
+            return
+        }
+
+        val fallbackTags = deriveStyleTags(conceptText).ifEmpty { defaultStyleTags() }
+        val analyzer = styleAnalyzer
+        if (analyzer == null) {
+            styleProbabilities = emptyList()
+            styleTags = fallbackTags
+            analysisState = AnalysisState.Failed
+            analysisErrorMessage = "AI 모델 초기화에 실패했습니다."
+            buildRecommendationCatalog()
+            return
+        }
+
+        isAnalyzingConcept = true
+        analysisState = AnalysisState.Running
+        analysisErrorMessage = null
+        analyzeJob = viewModelScope.launch {
+            try {
+                val scores = analyzer.analyze(conceptText)
+                styleProbabilities = scores
+                val picked = pickTagsFromScores(scores, analyzer)
+                styleTags = if (picked.isEmpty()) fallbackTags else picked
+                analysisState = AnalysisState.Success
+            } catch (c: CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                Log.e(LOG_TAG, "Style analyzer failed", t)
+                styleProbabilities = emptyList()
+                styleTags = fallbackTags
+                analysisState = AnalysisState.Failed
+                analysisErrorMessage = t.message ?: "AI 분석 중 오류가 발생했습니다."
+            } finally {
+                isAnalyzingConcept = false
+                buildRecommendationCatalog()
+            }
+        }
     }
 
     fun buildRecommendationCatalog() {
@@ -408,6 +480,38 @@ class FloorPlanViewModel : ViewModel() {
         }
 
         return plan.copy(furnitures = updated)
+    }
+
+    private fun pickTagsFromScores(
+        scores: List<StyleProbability>,
+        analyzer: StyleAnalyzer,
+        minScore: Float = 0.2f,
+        maxCount: Int = 3
+    ): Set<String> {
+        if (scores.isEmpty()) return emptySet()
+        val filtered = scores.filter { it.probability >= minScore }
+        val source = if (filtered.isEmpty()) scores else filtered
+        val collected = linkedSetOf<String>()
+        source.take(maxCount).forEach { probability ->
+            val mapped = analyzer.styleTagsFor(probability.label)
+            if (mapped.isNotEmpty()) {
+                collected += mapped
+            }
+        }
+        return collected
+    }
+
+    fun cancelAnalysis() {
+        analyzeJob?.cancel()
+        analyzeJob = null
+        isAnalyzingConcept = false
+        analysisState = AnalysisState.Idle
+        analysisErrorMessage = null
+    }
+
+    fun markAnalysisHandled() {
+        analysisState = AnalysisState.Idle
+        analysisErrorMessage = null
     }
 
     private fun deriveStyleTags(text: String): Set<String> {
@@ -702,4 +806,23 @@ class FloorPlanViewModel : ViewModel() {
     }
 
     private enum class Direction { LEFT, RIGHT, TOP, BOTTOM }
+
+    companion object {
+        private const val LOG_TAG = "FloorPlanViewModel"
+
+
+        fun provideFactory(context: Context): ViewModelProvider.Factory {
+            val appContext = context.applicationContext
+            return object : ViewModelProvider.Factory {
+                override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                    if (modelClass.isAssignableFrom(FloorPlanViewModel::class.java)) {
+                        val analyzer = StyleAnalyzerProvider.getOrNull(appContext)
+                        @Suppress("UNCHECKED_CAST")
+                        return FloorPlanViewModel(analyzer) as T
+                    }
+                    throw IllegalArgumentException("Unknown ViewModel class: $modelClass")
+                }
+            }
+        }
+    }
 }

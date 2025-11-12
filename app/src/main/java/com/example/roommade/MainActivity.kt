@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -19,7 +20,10 @@ class MainActivity : ComponentActivity() {
         setContent {
             Surface(color = MaterialTheme.colorScheme.background) {
                 val nav = rememberNavController()
-                val vm: FloorPlanViewModel = viewModel()
+                val context = LocalContext.current
+                val vm: FloorPlanViewModel = viewModel(
+                    factory = FloorPlanViewModel.provideFactory(context)
+                )
                 NavHost(nav, startDestination = Route.Start.path) {
                     composable(Route.Start.path) {
                         StartScreen(
@@ -49,8 +53,28 @@ class MainActivity : ComponentActivity() {
                     }
                     composable(Route.Concept.path) {
                         ConceptInputScreen(
-                            onNext = { nav.navigate(Route.Catalog.path) },
+                            onNext = { nav.navigate(Route.ConceptAnalyzing.path) },
                             onBack = { nav.popBackStack() },
+                            vm = vm
+                        )
+                    }
+                    composable(Route.ConceptAnalyzing.path) {
+                        ConceptAnalyzingScreen(
+                            onAnalyzed = {
+                                nav.navigate(Route.ConceptResult.path) {
+                                    popUpTo(Route.ConceptAnalyzing.path) { inclusive = true }
+                                }
+                            },
+                            onCancel = { nav.popBackStack() },
+                            vm = vm
+                        )
+                    }
+                    composable(Route.ConceptResult.path) {
+                        ConceptResultScreen(
+                            onNext = { nav.navigate(Route.Catalog.path) },
+                            onBack = {
+                                nav.popBackStack(Route.Concept.path, inclusive = false)
+                            },
                             vm = vm
                         )
                     }

@@ -29,6 +29,10 @@ android {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
     }
+
+    aaptOptions {
+        noCompress.add ("tflite")
+    }
 }
 
 kotlin {
@@ -52,8 +56,25 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.navigation:navigation-compose:2.8.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.4")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
 
     // Material Components (XML 테마 사용 시)
     implementation("com.google.android.material:material:1.12.0")
+    // TFLite runtime: 모델이 FULLY_CONNECTED v12를 사용 -> 2.17+ 필요
+    implementation("org.tensorflow:tensorflow-lite:2.17.0")
+}
+
+// Guice 5.x는 MethodHandle을 사용해 API 26 이상을 요구함. minSdk 24 호환을 위해 4.2.3으로 강제.
+configurations.all {
+    resolutionStrategy.eachDependency {
+        if (requested.group == "com.google.inject" && requested.name == "guice") {
+            useVersion("4.2.3")
+            because("Guice 5.x requires Android O+ due to MethodHandle; pin to 4.2.3 for API 24.")
+        }
+        if (requested.group == "org.tensorflow" && requested.name == "tensorflow-lite") {
+            useVersion("2.17.0")
+            because("pin TensorFlow Lite runtime to a version that supports the model")
+        }
+    }
 }
