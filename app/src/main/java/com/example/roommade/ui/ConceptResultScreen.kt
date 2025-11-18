@@ -26,7 +26,7 @@ import kotlin.math.roundToInt
 
 @Composable
 fun ConceptResultScreen(
-    onNext: () -> Unit,
+    onSearch: () -> Unit,
     onBack: () -> Unit,
     vm: FloorPlanViewModel
 ) {
@@ -94,9 +94,9 @@ fun ConceptResultScreen(
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(
                 modifier = Modifier.fillMaxWidth(),
-                onClick = onNext
+                onClick = onSearch
             ) {
-                Text("추천 가구 보기")
+                Text("추천 가구 검색")
             }
             OutlinedButton(
                 modifier = Modifier.fillMaxWidth(),

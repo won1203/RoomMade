@@ -1,5 +1,6 @@
 package com.example.roommade
 
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -10,6 +11,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
 import com.example.roommade.nav.Route
 import com.example.roommade.ui.*
 import com.example.roommade.vm.FloorPlanViewModel
@@ -25,6 +28,10 @@ class MainActivity : ComponentActivity() {
                     factory = FloorPlanViewModel.provideFactory(context)
                 )
                 NavHost(nav, startDestination = Route.Start.path) {
+                    fun navigateToShoppingWeb() {
+                        val encoded = Uri.encode(vm.shoppingSearchQuery())
+                        nav.navigate("${Route.ShoppingWeb.path}?query=$encoded")
+                    }
                     composable(Route.Start.path) {
                         StartScreen(
                             onStartManual = { nav.navigate(Route.StructureArea.path) }
@@ -71,17 +78,10 @@ class MainActivity : ComponentActivity() {
                     }
                     composable(Route.ConceptResult.path) {
                         ConceptResultScreen(
-                            onNext = { nav.navigate(Route.Catalog.path) },
+                            onSearch = { navigateToShoppingWeb() },
                             onBack = {
                                 nav.popBackStack(Route.Concept.path, inclusive = false)
                             },
-                            vm = vm
-                        )
-                    }
-                    composable(Route.Catalog.path) {
-                        RecommendationCatalogScreen(
-                            onNext = { nav.navigate(Route.Plans.path) },
-                            onBack = { nav.popBackStack() },
                             vm = vm
                         )
                     }
@@ -94,16 +94,25 @@ class MainActivity : ComponentActivity() {
                     }
                     composable(Route.Result.path) {
                         ResultScreen(
-                            onShop = { nav.navigate(Route.Shopping.path) },
+                            onSearch = { navigateToShoppingWeb() },
                             onBack = { nav.popBackStack() },
                             vm = vm
                         )
                     }
-                    composable(Route.Shopping.path) {
-                        ShoppingScreen(
-                            onDone = { nav.popBackStack(Route.StructureArea.path, false) },
-                            onBack = { nav.popBackStack() },
-                            vm = vm
+                    composable(
+                        route = "${Route.ShoppingWeb.path}?query={query}",
+                        arguments = listOf(
+                            navArgument("query") {
+                                type = NavType.StringType
+                                defaultValue = ""
+                            }
+                        )
+                    ) { entry ->
+                        val rawQuery = entry.arguments?.getString("query")?.let { Uri.decode(it) }.orEmpty()
+                        ShoppingWebViewScreen(
+                            query = rawQuery,
+                            vm = vm,
+                            onBack = { nav.popBackStack() }
                         )
                     }
                 }

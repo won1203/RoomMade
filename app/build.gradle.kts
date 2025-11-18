@@ -1,12 +1,33 @@
 import org.gradle.kotlin.dsl.androidTestImplementation
 import org.gradle.kotlin.dsl.debugImplementation
 import org.gradle.kotlin.dsl.implementation
+import java.util.Properties
 
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
-    id("org.jetbrains.kotlin.plugin.compose") // Kotlin 2.0+ 필수
+    id("org.jetbrains.kotlin.plugin.compose") // Kotlin 2.0+ required
 }
+
+private val localProperties: Properties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) {
+        file.inputStream().use { load(it) }
+    }
+}
+
+private fun credentialProperty(name: String): String =
+    (localProperties.getProperty(name)
+        ?: (project.findProperty(name) as String?)
+        ?: System.getenv(name)
+        ?: "").trim()
+
+fun String.escapeForBuildConfig(): String =
+    this.replace("\\", "\\\\")
+        .replace("\"", "\\\"")
+
+val naverClientId: String = credentialProperty("NAVER_CLIENT_ID")
+val naverClientSecret: String = credentialProperty("NAVER_CLIENT_SECRET")
 
 android {
     namespace = "com.example.roommade"
@@ -18,29 +39,41 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "0.1.0"
+
+        buildConfigField(
+            "String",
+            "NAVER_CLIENT_ID",
+            "\"${naverClientId.escapeForBuildConfig()}\""
+        )
+        buildConfigField(
+            "String",
+            "NAVER_CLIENT_SECRET",
+            "\"${naverClientSecret.escapeForBuildConfig()}\""
+        )
     }
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
-    // Java 21 설정
+    // Java 21 toolchain
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
     }
 
-    aaptOptions {
-        noCompress.add ("tflite")
+    androidResources {
+        noCompress += listOf("tflite")
     }
 }
 
 kotlin {
-    jvmToolchain(21) // Kotlin도 Java 21 사용
+    jvmToolchain(21) // Kotlin uses Java 21 toolchain
 }
 
 dependencies {
-    // 필수 KTX (ContextCompat 등)
+    // Core KTX helpers
     implementation("androidx.core:core-ktx:1.13.1")
 
     // Compose BOM
@@ -52,20 +85,23 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     debugImplementation("androidx.compose.ui:ui-tooling")
-    // ✅ BOM 사용 시 버전 명시 제거 (충돌 방지)
     implementation("androidx.compose.material3:material3")
     implementation("androidx.navigation:navigation-compose:2.8.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.4")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
 
-    // Material Components (XML 테마 사용 시)
+    // Material Components (XML)
     implementation("com.google.android.material:material:1.12.0")
-    // TFLite runtime: 모델이 FULLY_CONNECTED v12를 사용 -> 2.17+ 필요
+    // TFLite runtime: FULLY_CONNECTED v12 requires 2.17+
     implementation("org.tensorflow:tensorflow-lite:2.17.0")
+    // WebView support + HTTP client
+    implementation("androidx.webkit:webkit:1.8.0")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("io.coil-kt:coil-compose:2.6.0")
 }
 
-// Guice 5.x는 MethodHandle을 사용해 API 26 이상을 요구함. minSdk 24 호환을 위해 4.2.3으로 강제.
+// Pin dependencies for legacy Android compatibility
 configurations.all {
     resolutionStrategy.eachDependency {
         if (requested.group == "com.google.inject" && requested.name == "guice") {

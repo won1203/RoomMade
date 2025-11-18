@@ -23,7 +23,10 @@ import com.example.roommade.model.OpeningType
 import com.example.roommade.model.Recommendation
 import com.example.roommade.model.RoomSpec
 import com.example.roommade.model.ShopLink
-import com.example.roommade.model.StyleCatalog
+import com.example.roommade.model.korLabel
+import com.example.roommade.network.NaverShoppingClient
+import com.example.roommade.network.NaverShoppingItem
+import java.util.Locale
 import kotlin.math.max
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -32,7 +35,8 @@ import kotlinx.coroutines.launch
 enum class AnalysisState { Idle, Running, Success, Failed }
 
 class FloorPlanViewModel(
-    private val styleAnalyzer: StyleAnalyzer? = null
+    private val styleAnalyzer: StyleAnalyzer? = null,
+    private val shoppingClient: NaverShoppingClient = NaverShoppingClient()
 ) : ViewModel() {
 
     var roomSpec by mutableStateOf(RoomSpec())
@@ -68,6 +72,9 @@ class FloorPlanViewModel(
     var chosenCatalog by mutableStateOf<Set<String>>(emptySet())
         private set
 
+    var scrapedItems by mutableStateOf<List<CatalogItem>>(emptyList())
+        private set
+
     var recommendations by mutableStateOf<List<Recommendation>>(emptyList())
         private set
 
@@ -80,7 +87,23 @@ class FloorPlanViewModel(
     var inventory by mutableStateOf<Map<FurnCategory, Int>>(emptyMap())
         private set
 
+    var shoppingQueryInput by mutableStateOf("")
+        private set
+
+    var shoppingResults by mutableStateOf<List<NaverShoppingItem>>(emptyList())
+        private set
+
+    var shoppingIsLoading by mutableStateOf(false)
+        private set
+
+    var shoppingErrorMessage by mutableStateOf<String?>(null)
+        private set
+
+    var shoppingCategoryFilter by mutableStateOf<String?>(null)
+        private set
+
     private var analyzeJob: Job? = null
+    private var shoppingJob: Job? = null
 
     // ---------------------------------------------------------------------
     // Room specification and base layout
@@ -95,6 +118,14 @@ class FloorPlanViewModel(
         val clampedAspect = aspectRatio.coerceIn(0.5f, 2.0f)
         roomSpec = roomSpec.copy(areaPyeong = clampedArea, aspect = clampedAspect)
         inventory = inventoryCounts.filterValues { it > 0 }
+        scrapedItems = emptyList()
+        chosenCatalog = emptySet()
+        shoppingJob?.cancel()
+        shoppingQueryInput = ""
+        shoppingResults = emptyList()
+        shoppingErrorMessage = null
+        shoppingIsLoading = false
+        shoppingCategoryFilter = null
 
         floorPlan = buildBaseFloorPlan()
         floorPlan = ensureDefaultOpenings(floorPlan)
@@ -342,29 +373,106 @@ class FloorPlanViewModel(
     }
 
     fun buildRecommendationCatalog() {
-        val catalog = demoCatalog().items
+        val catalog = inventoryBackedCatalog()
         val prioritized = if (styleTags.isEmpty()) {
             catalog
         } else {
             val filtered = catalog.filter { it.styleTags.intersect(styleTags).isNotEmpty() }
             if (filtered.isEmpty()) catalog else filtered
         }.sortedWith(
-            compareByDescending<CatalogItem> { it.styleTags.count { tag -> tag in styleTags } }
-                .thenBy { it.priceKRW }
+            compareByDescending<CatalogItem> { item ->
+                item.styleTags.count { tag -> tag in styleTags }
+            }.thenBy { it.priceKRW }
         )
 
-        recommendedCatalog = prioritized
-        val availableIds = prioritized.map { it.id }.toSet()
+        val combined = prioritized + scrapedItems
+        recommendedCatalog = combined
+        val availableIds = combined.map { it.id }.toSet()
         val keep = chosenCatalog.filter { it in availableIds }.toSet()
-        chosenCatalog = if (keep.isNotEmpty()) {
-            keep
-        } else {
-            pickDiverseDefaults(prioritized, 4)
-        }
+        chosenCatalog = if (keep.isNotEmpty()) keep else pickDiverseDefaults(prioritized, 4)
+        shoppingQueryInput = shoppingSearchQuery()
     }
 
     fun toggleChooseCatalogItem(id: String) {
         chosenCatalog = if (id in chosenCatalog) chosenCatalog - id else chosenCatalog + id
+    }
+
+    fun addScrapedItem(name: String, category: FurnCategory, price: Int?, sourceUrl: String?) {
+        val safeName = name.ifBlank { category.korLabel() }
+        val tags = if (styleTags.isNotEmpty()) styleTags else defaultStyleTags()
+        val (defaultWidth, defaultHeight) = defaultSizeMm(category)
+        val item = CatalogItem(
+            id = "$SCRAP_ITEM_PREFIX${System.currentTimeMillis()}",
+            name = safeName,
+            category = category,
+            styleTags = tags,
+            defaultWidthMm = defaultWidth,
+            defaultHeightMm = defaultHeight,
+            priceKRW = price?.coerceAtLeast(0) ?: 0,
+            shopLinks = sourceUrl?.takeIf { it.isNotBlank() }
+                ?.let { listOf(ShopLink("Scrap", it)) }
+                ?: emptyList()
+        )
+        scrapedItems = scrapedItems + item
+        chosenCatalog = chosenCatalog + item.id
+        buildRecommendationCatalog()
+    }
+
+    fun shoppingSearchQuery(): String {
+        val keyword = styleKeyword()
+        val category = shoppingCategoryFilter
+        return when {
+            keyword != null && category != null -> "$keyword $category"
+            keyword != null -> "$keyword 인테리어 가구"
+            category != null -> "$category 추천"
+            else -> "인테리어 가구 추천"
+        }
+    }
+
+    fun updateShoppingQueryInput(value: String) {
+        shoppingQueryInput = value
+    }
+
+    fun ensureShoppingQueryPrefilled() {
+        if (shoppingQueryInput.isBlank()) {
+            shoppingQueryInput = shoppingSearchQuery()
+        }
+    }
+
+    fun hasShoppingCredentials(): Boolean = shoppingClient.hasCredentials()
+
+    fun searchShoppingItems(queryOverride: String? = null) {
+        val target = queryOverride
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?: shoppingQueryInput.trim().ifBlank { shoppingSearchQuery() }
+        if (target.isBlank()) return
+
+        shoppingQueryInput = target
+        shoppingJob?.cancel()
+        shoppingJob = viewModelScope.launch {
+            shoppingIsLoading = true
+            shoppingErrorMessage = null
+            try {
+                val result = shoppingClient.search(target)
+                shoppingResults = result
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (e: Exception) {
+                Log.e(LOG_TAG, "Failed to search Naver shopping", e)
+                shoppingErrorMessage = e.message ?: "추천 가구 검색 중 오류가 발생했습니다."
+                shoppingResults = emptyList()
+            } finally {
+                shoppingIsLoading = false
+            }
+        }
+    }
+
+    fun updateShoppingCategoryFilter(categoryLabel: String?) {
+        val normalized = categoryLabel?.takeIf { it.isNotBlank() }
+        if (shoppingCategoryFilter == normalized) return
+        shoppingCategoryFilter = normalized
+        shoppingQueryInput = shoppingSearchQuery()
     }
 
     // ---------------------------------------------------------------------
@@ -420,21 +528,6 @@ class FloorPlanViewModel(
     fun chooseRecommendation(rec: Recommendation) {
         selectedRec = rec
         floorPlan = rec.plan
-    }
-
-    fun buildShoppingForSelection(): List<CatalogItem> {
-        val rec = selectedRec ?: return emptyList()
-        val categories = rec.plan.furnitures.map { it.category }.toSet()
-        val source = if (recommendedCatalog.isNotEmpty()) {
-            recommendedCatalog
-        } else {
-            demoCatalog().items
-        }
-        return source
-            .filter { it.category in categories }
-            .sortedByDescending { it.styleTags.count { tag -> tag in styleTags } }
-            .groupBy { it.category }
-            .flatMap { (_, items) -> items.take(3) }
     }
 
     // ---------------------------------------------------------------------
@@ -691,90 +784,43 @@ class FloorPlanViewModel(
         )
     )
 
-    private fun demoCatalog() = StyleCatalog(
-        items = listOf(
-            CatalogItem(
-                id = "bed_natural_01",
-                name = "Oak frame platform bed",
-                category = FurnCategory.BED,
-                styleTags = setOf("Natural", "Warm"),
-                defaultWidthMm = 1600,
-                defaultHeightMm = 2000,
-                priceKRW = 459_000,
-                shopLinks = listOf(ShopLink("Nordico", "https://example.com/bed_natural_01"))
-            ),
-            CatalogItem(
-                id = "bed_minimal_01",
-                name = "Low profile fabric bed",
-                category = FurnCategory.BED,
-                styleTags = setOf("Minimal", "Bright"),
-                defaultWidthMm = 1500,
-                defaultHeightMm = 2000,
-                priceKRW = 329_000,
-                shopLinks = listOf(ShopLink("CalmLiving", "https://example.com/bed_minimal_01"))
-            ),
-            CatalogItem(
-                id = "desk_modern_01",
-                name = "Walnut study desk 1400",
-                category = FurnCategory.DESK,
-                styleTags = setOf("Modern", "Warm"),
-                defaultWidthMm = 1400,
-                defaultHeightMm = 700,
-                priceKRW = 259_000,
-                shopLinks = listOf(ShopLink("BeamDesk", "https://example.com/desk_modern_01"))
-            ),
-            CatalogItem(
-                id = "desk_minimal_01",
-                name = "White steel desk 1200",
-                category = FurnCategory.DESK,
-                styleTags = setOf("Minimal", "Bright"),
-                defaultWidthMm = 1200,
-                defaultHeightMm = 600,
-                priceKRW = 159_000,
-                shopLinks = listOf(ShopLink("SimpleLine", "https://example.com/desk_minimal_01"))
-            ),
-            CatalogItem(
-                id = "sofa_cozy_01",
-                name = "Two-seat boucle sofa",
-                category = FurnCategory.SOFA,
-                styleTags = setOf("Cozy", "Warm"),
-                defaultWidthMm = 1700,
-                defaultHeightMm = 900,
-                priceKRW = 389_000,
-                shopLinks = listOf(ShopLink("SoftNest", "https://example.com/sofa_cozy_01"))
-            ),
-            CatalogItem(
-                id = "wardrobe_modern_01",
-                name = "Sliding wardrobe 1200",
-                category = FurnCategory.WARDROBE,
-                styleTags = setOf("Modern", "Minimal"),
-                defaultWidthMm = 1200,
-                defaultHeightMm = 600,
-                priceKRW = 299_000,
-                shopLinks = listOf(ShopLink("ClosetLab", "https://example.com/wardrobe_modern_01"))
-            ),
-            CatalogItem(
-                id = "table_natural_01",
-                name = "Round dining table 900",
-                category = FurnCategory.TABLE,
-                styleTags = setOf("Natural", "Bright"),
-                defaultWidthMm = 900,
-                defaultHeightMm = 900,
-                priceKRW = 189_000,
-                shopLinks = listOf(ShopLink("Oak&Co", "https://example.com/table_natural_01"))
-            ),
-            CatalogItem(
-                id = "table_industrial_01",
-                name = "Metal cafe table 800",
-                category = FurnCategory.TABLE,
-                styleTags = setOf("Industrial", "Modern"),
-                defaultWidthMm = 800,
-                defaultHeightMm = 800,
-                priceKRW = 210_000,
-                shopLinks = listOf(ShopLink("SteelCraft", "https://example.com/table_industrial_01"))
-            )
-        )
-    )
+    private fun inventoryBackedCatalog(): List<CatalogItem> {
+        if (inventory.isEmpty()) return emptyList()
+        val tags = styleTags.ifEmpty { defaultStyleTags() }
+        return inventory.flatMap { (category, count) ->
+            val (widthMm, heightMm) = defaultSizeMm(category)
+            (0 until count).map { index ->
+                CatalogItem(
+                    id = "inventory:${category.name.lowercase(Locale.ROOT)}_$index",
+                    name = "${category.korLabel()} ${index + 1}",
+                    category = category,
+                    styleTags = tags,
+                    defaultWidthMm = widthMm,
+                    defaultHeightMm = heightMm,
+                    priceKRW = 0,
+                    shopLinks = emptyList()
+                )
+            }
+        }
+    }
+
+    private fun styleKeyword(): String? {
+        val primary = styleTags.firstOrNull()?.trim().orEmpty()
+        if (primary.isBlank()) return null
+        val normalized = primary.lowercase(Locale.ROOT)
+        val mapped = when (normalized) {
+            "modern", "모던" -> "모던"
+            "classic", "클래식" -> "클래식"
+            "cozy", "코지" -> "코지"
+            "natural", "내추럴" -> "내추럴"
+            "minimal", "미니멀",
+            "minimalist" -> "미니멀"
+            else -> null
+        }
+        if (mapped != null) return mapped
+        val containsLatin = primary.any { it.code in 0x41..0x5A || it.code in 0x61..0x7A }
+        return if (containsLatin) null else primary
+    }
 
     private data class StyleRule(
         val keywords: List<String>,
@@ -807,8 +853,15 @@ class FloorPlanViewModel(
 
     private enum class Direction { LEFT, RIGHT, TOP, BOTTOM }
 
+    override fun onCleared() {
+        super.onCleared()
+        analyzeJob?.cancel()
+        shoppingJob?.cancel()
+    }
+
     companion object {
         private const val LOG_TAG = "FloorPlanViewModel"
+        private const val SCRAP_ITEM_PREFIX = "scrap:"
 
 
         fun provideFactory(context: Context): ViewModelProvider.Factory {
@@ -817,8 +870,9 @@ class FloorPlanViewModel(
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
                     if (modelClass.isAssignableFrom(FloorPlanViewModel::class.java)) {
                         val analyzer = StyleAnalyzerProvider.getOrNull(appContext)
+                        val shoppingClient = NaverShoppingClient()
                         @Suppress("UNCHECKED_CAST")
-                        return FloorPlanViewModel(analyzer) as T
+                        return FloorPlanViewModel(analyzer, shoppingClient) as T
                     }
                     throw IllegalArgumentException("Unknown ViewModel class: $modelClass")
                 }
