@@ -20,9 +20,11 @@ import com.example.roommade.model.FurnOrigin
 import com.example.roommade.model.Furniture
 import com.example.roommade.model.Opening
 import com.example.roommade.model.OpeningType
+import com.example.roommade.model.RoomCategory
 import com.example.roommade.model.Recommendation
 import com.example.roommade.model.RoomSpec
 import com.example.roommade.model.ShopLink
+import com.example.roommade.model.defaults
 import com.example.roommade.model.korLabel
 import com.example.roommade.network.NaverShoppingClient
 import com.example.roommade.network.NaverShoppingItem
@@ -38,6 +40,9 @@ class FloorPlanViewModel(
     private val styleAnalyzer: StyleAnalyzer? = null,
     private val shoppingClient: NaverShoppingClient = NaverShoppingClient()
 ) : ViewModel() {
+
+    var roomCategory by mutableStateOf(RoomCategory.MASTER_BEDROOM)
+        private set
 
     var roomSpec by mutableStateOf(RoomSpec())
         private set
@@ -102,6 +107,12 @@ class FloorPlanViewModel(
     var shoppingCategoryFilter by mutableStateOf<String?>(null)
         private set
 
+    var cartItems by mutableStateOf<List<NaverShoppingItem>>(emptyList())
+        private set
+
+    var placementRendered by mutableStateOf(false)
+        private set
+
     private var analyzeJob: Job? = null
     private var shoppingJob: Job? = null
 
@@ -109,15 +120,25 @@ class FloorPlanViewModel(
     // Room specification and base layout
     // ---------------------------------------------------------------------
 
+    private fun normalizeRoomSpec(areaPyeong: Float, aspectRatio: Float): RoomSpec {
+        val clampedArea = areaPyeong.coerceIn(2f, 80f)
+        val clampedAspect = aspectRatio.coerceIn(0.5f, 2.0f)
+        return roomSpec.copy(areaPyeong = clampedArea, aspect = clampedAspect)
+    }
+
+    private fun refreshPlanScale() {
+        floorPlan = floorPlan.copy(bounds = buildBounds(), scaleMmPerPx = computeMmPerPx())
+    }
+
     fun prepareStructure(
         areaPyeong: Float,
         aspectRatio: Float,
         inventoryCounts: Map<FurnCategory, Int>
     ) {
-        val clampedArea = areaPyeong.coerceIn(2f, 80f)
-        val clampedAspect = aspectRatio.coerceIn(0.5f, 2.0f)
-        roomSpec = roomSpec.copy(areaPyeong = clampedArea, aspect = clampedAspect)
-        inventory = inventoryCounts.filterValues { it > 0 }
+        roomSpec = normalizeRoomSpec(areaPyeong, aspectRatio)
+        setInventoryCounts(inventoryCounts)
+        cartItems = emptyList()
+        placementRendered = false
         scrapedItems = emptyList()
         chosenCatalog = emptySet()
         shoppingJob?.cancel()
@@ -139,13 +160,21 @@ class FloorPlanViewModel(
     }
 
     fun setRoomAreaPyeong(value: Float) {
-        roomSpec = roomSpec.copy(areaPyeong = value.coerceIn(2f, 80f))
-        floorPlan = floorPlan.copy(bounds = buildBounds(), scaleMmPerPx = computeMmPerPx())
+        roomSpec = normalizeRoomSpec(value, roomSpec.aspect)
+        refreshPlanScale()
     }
 
     fun setRoomAspect(value: Float) {
-        roomSpec = roomSpec.copy(aspect = value.coerceIn(0.5f, 2.0f))
-        floorPlan = floorPlan.copy(bounds = buildBounds(), scaleMmPerPx = computeMmPerPx())
+        roomSpec = normalizeRoomSpec(roomSpec.areaPyeong, value)
+        refreshPlanScale()
+    }
+
+    fun selectRoomCategory(category: RoomCategory) {
+        if (roomCategory == category) return
+        roomCategory = category
+        val defaults = category.defaults()
+        roomSpec = normalizeRoomSpec(defaults.areaPyeong, defaults.aspect)
+        refreshPlanScale()
     }
 
     fun setInventoryCounts(map: Map<FurnCategory, Int>) {
@@ -319,6 +348,20 @@ class FloorPlanViewModel(
         FurnCategory.OTHER -> 700 to 700
     }
 
+    private fun cartTag(id: String): String = "$CART_TAG_PREFIX$id"
+
+    private fun guessCategoryFromText(text: String): FurnCategory {
+        val normalized = text.lowercase(Locale.ROOT)
+        return when {
+            listOf("침대", "bed").any { normalized.contains(it) } -> FurnCategory.BED
+            listOf("소파", "sofa", "카우치").any { normalized.contains(it) } -> FurnCategory.SOFA
+            listOf("테이블", "식탁", "table", "dining").any { normalized.contains(it) } -> FurnCategory.TABLE
+            listOf("책상", "desk").any { normalized.contains(it) } -> FurnCategory.DESK
+            listOf("옷장", "수납", "wardrobe", "closet", "수납장").any { normalized.contains(it) } -> FurnCategory.WARDROBE
+            else -> FurnCategory.OTHER
+        }
+    }
+
     // ---------------------------------------------------------------------
     // Style analysis and catalog selection
     // ---------------------------------------------------------------------
@@ -473,6 +516,59 @@ class FloorPlanViewModel(
         if (shoppingCategoryFilter == normalized) return
         shoppingCategoryFilter = normalized
         shoppingQueryInput = shoppingSearchQuery()
+    }
+
+    // ---------------------------------------------------------------------
+    // Shopping cart and placement
+    // ---------------------------------------------------------------------
+
+    fun toggleCartItem(item: NaverShoppingItem) {
+        val exists = cartItems.any { it.id == item.id }
+        cartItems = if (exists) {
+            cartItems.filterNot { it.id == item.id }
+        } else {
+            cartItems + item
+        }
+        placementRendered = false
+        syncCartFurniture()
+    }
+
+    fun isInCart(itemId: String): Boolean = cartItems.any { it.id == itemId }
+
+    fun cartCount(): Int = cartItems.size
+
+    fun syncCartFurniture() {
+        val mmPerPx = floorPlan.scaleMmPerPx.coerceAtLeast(1f)
+        val bounds = floorPlan.bounds
+        val cursor = PlacementCursor(bounds)
+        val existingCart = floorPlan.furnitures.filter { it.tag?.startsWith(CART_TAG_PREFIX) == true }
+            .associateBy { it.tag }
+        val preserved = floorPlan.furnitures.filterNot { it.tag?.startsWith(CART_TAG_PREFIX) == true }
+
+        val additions = cartItems.map { item ->
+            val tag = cartTag(item.id)
+            val keptRect = existingCart[tag]?.rect
+            val category = guessCategoryFromText(item.title)
+            val (widthMm, heightMm) = defaultSizeMm(category)
+            val widthPx = widthMm / mmPerPx
+            val heightPx = heightMm / mmPerPx
+            val rect = keptRect ?: run {
+                val (left, top) = cursor.next(widthPx, heightPx)
+                RectF(left, top, left + widthPx, top + heightPx)
+            }
+            Furniture(
+                category = category,
+                rect = rect,
+                origin = FurnOrigin.CATALOG,
+                tag = tag
+            )
+        }
+
+        floorPlan = floorPlan.copy(furnitures = preserved + additions)
+    }
+
+    fun markPlacementRendered() {
+        placementRendered = true
     }
 
     // ---------------------------------------------------------------------
@@ -862,6 +958,7 @@ class FloorPlanViewModel(
     companion object {
         private const val LOG_TAG = "FloorPlanViewModel"
         private const val SCRAP_ITEM_PREFIX = "scrap:"
+        private const val CART_TAG_PREFIX = "cart:"
 
 
         fun provideFactory(context: Context): ViewModelProvider.Factory {

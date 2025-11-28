@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import com.example.roommade.model.FloorPlan
 import com.example.roommade.model.FurnCategory
 import com.example.roommade.model.korLabel
+import com.example.roommade.ui.planLabelsFor
 import com.example.roommade.vm.FloorPlanViewModel
 import kotlin.math.min
 
@@ -48,7 +49,7 @@ fun PlanCanvasStatic(
     alignYFraction: Float = 0.5f,
 ) {
     val density = LocalDensity.current
-    val labels = remember(plan.furnitures) { labelsForPlan(plan) }
+    val labels = remember(plan.furnitures) { planLabelsFor(plan) }
     Canvas(modifier = modifier) {
         val info0 = computeScaleInfo(plan.bounds, size, preferHeight = fitToHeight)
         val width = plan.bounds.width().coerceAtLeast(1f)
@@ -75,7 +76,7 @@ fun PlanCanvasStatic(
                 bottom = plan.bounds.height()
             ) {
                 // 諛곌꼍? 諛??대?留??곗깋?쇰줈 梨꾩슫??(罹붾쾭???꾩껜 諛곌꼍? 移좏븯吏 ?딆쓬)
-                drawPlan(plan, showLabels, labels, density)
+                drawPlan(plan, showLabels, labels, density, selectedIndex = null)
             }
         }
     }
@@ -101,7 +102,7 @@ fun PlanCanvasInteractive(
         dragTarget = null
         furnitureDrag = null
     }
-    val labels = remember(plan.furnitures) { labelsForPlan(plan) }
+    val labels = remember(plan.furnitures) { planLabelsFor(plan) }
     val widthPx = plan.bounds.width().coerceAtLeast(1f)
     val heightPx = plan.bounds.height().coerceAtLeast(1f)
     val widthDp = with(density) { widthPx.toDp() }
@@ -117,6 +118,7 @@ fun PlanCanvasInteractive(
                         val target = hitTest(planState, offset)
                         dragTarget = target
                         if (target is DragTarget.Furniture) {
+                            vm.selectFurniture(target.index)
                             val rect = planState.furnitures.getOrNull(target.index)?.rect
                             if (rect != null) {
                                 furnitureDrag = DragContext(
@@ -175,7 +177,7 @@ fun PlanCanvasInteractive(
             right = plan.bounds.right,
             bottom = plan.bounds.bottom
         ) {
-            drawPlan(planState, true, labels, density)
+            drawPlan(planState, true, labels, density, selectedIndex = vm.selectedFurnitureIndex)
         }
     }
 }
@@ -212,6 +214,7 @@ private fun DrawScope.drawPlan(
     showLabels: Boolean,
     labels: List<String>,
     density: androidx.compose.ui.unit.Density,
+    selectedIndex: Int?
 ) {
     val roomWidth = plan.bounds.width()
     val roomHeight = plan.bounds.height()
@@ -253,7 +256,9 @@ private fun DrawScope.drawPlan(
         val size = androidx.compose.ui.geometry.Size(f.rect.width(), f.rect.height())
 
         drawRect(color = fill, topLeft = topLeft, size = size)
-        drawRect(color = Color.Black, topLeft = topLeft, size = size, style = Stroke(1.5f))
+        val borderColor = if (selectedIndex == index) Color(0xFF5B3FFF) else Color.Black
+        val borderWidth = if (selectedIndex == index) 3f else 1.5f
+        drawRect(color = borderColor, topLeft = topLeft, size = size, style = Stroke(borderWidth))
 
         if (showLabels) {
             val label = labels.getOrNull(index) ?: f.category.korLabel()
@@ -270,15 +275,4 @@ private fun DrawScope.drawPlan(
             }
         }
     }
-}
-
-private fun labelsForPlan(plan: FloorPlan): List<String> {
-    val counters = mutableMapOf<FurnCategory, Int>()
-    val out = ArrayList<String>(plan.furnitures.size)
-    plan.furnitures.forEach { f ->
-        val next = (counters[f.category] ?: 0) + 1
-        counters[f.category] = next
-        out += f.category.korLabel() + next.toString()
-    }
-    return out
 }

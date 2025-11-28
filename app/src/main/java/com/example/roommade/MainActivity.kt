@@ -34,7 +34,14 @@ class MainActivity : ComponentActivity() {
                     }
                     composable(Route.Start.path) {
                         StartScreen(
-                            onStartManual = { nav.navigate(Route.StructureArea.path) }
+                            onStartManual = { nav.navigate(Route.RoomCategory.path) }
+                        )
+                    }
+                    composable(Route.RoomCategory.path) {
+                        RoomCategoryScreen(
+                            onNext = { nav.navigate(Route.StructureArea.path) },
+                            onBack = { nav.popBackStack() },
+                            vm = vm
                         )
                     }
                     composable(Route.StructureArea.path) {
@@ -46,7 +53,7 @@ class MainActivity : ComponentActivity() {
                     }
                     composable(Route.StructureInventory.path) {
                         StructureInventoryScreen(
-                            onNext = { nav.navigate(Route.StructureLayout.path) },
+                            onNext = { nav.navigate(Route.Concept.path) },
                             onBack = { nav.popBackStack() },
                             vm = vm
                         )
@@ -112,7 +119,15 @@ class MainActivity : ComponentActivity() {
                         ShoppingWebViewScreen(
                             query = rawQuery,
                             vm = vm,
-                            onBack = { nav.popBackStack() }
+                            onBack = { nav.popBackStack() },
+                            onGoPlacement = { nav.navigate(Route.Placement.path) }
+                        )
+                    }
+                    composable(Route.Placement.path) {
+                        PlacementScreen(
+                            onBack = { nav.popBackStack() },
+                            onRender = { vm.markPlacementRendered() },
+                            vm = vm
                         )
                     }
                 }

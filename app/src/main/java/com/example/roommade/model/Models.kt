@@ -10,7 +10,8 @@ enum class FurnOrigin { INVENTORY, CATALOG, MANUAL }
 data class Furniture(
     val category: FurnCategory,
     val rect: RectF,
-    val origin: FurnOrigin = FurnOrigin.MANUAL
+    val origin: FurnOrigin = FurnOrigin.MANUAL,
+    val tag: String? = null
 )
 
 data class Opening(val type: OpeningType, val rect: RectF)
