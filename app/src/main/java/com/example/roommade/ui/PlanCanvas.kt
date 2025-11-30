@@ -75,7 +75,6 @@ fun PlanCanvasStatic(
                 right = plan.bounds.width(),
                 bottom = plan.bounds.height()
             ) {
-                // 諛곌꼍? 諛??대?留??곗깋?쇰줈 梨꾩슫??(罹붾쾭???꾩껜 諛곌꼍? 移좏븯吏 ?딆쓬)
                 drawPlan(plan, showLabels, labels, density, selectedIndex = null)
             }
         }

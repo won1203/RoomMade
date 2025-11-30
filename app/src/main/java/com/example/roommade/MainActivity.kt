@@ -127,7 +127,14 @@ class MainActivity : ComponentActivity() {
                         PlacementScreen(
                             onBack = { nav.popBackStack() },
                             onRender = { vm.markPlacementRendered() },
+                            onGenerateAi = { nav.navigate(Route.AiImage.path) },
                             vm = vm
+                        )
+                    }
+                    composable(Route.AiImage.path) {
+                        AiImageScreen(
+                            vm = vm,
+                            onBack = { nav.popBackStack() }
                         )
                     }
                 }

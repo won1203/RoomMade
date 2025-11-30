@@ -28,6 +28,8 @@ fun String.escapeForBuildConfig(): String =
 
 val naverClientId: String = credentialProperty("NAVER_CLIENT_ID")
 val naverClientSecret: String = credentialProperty("NAVER_CLIENT_SECRET")
+val replicateApiKey: String = credentialProperty("REPLICATE_API_KEY")
+val replicateControlnetVersion: String = credentialProperty("REPLICATE_CONTROLNET_VERSION")
 
 android {
     namespace = "com.example.roommade"
@@ -49,6 +51,16 @@ android {
             "String",
             "NAVER_CLIENT_SECRET",
             "\"${naverClientSecret.escapeForBuildConfig()}\""
+        )
+        buildConfigField(
+            "String",
+            "REPLICATE_API_KEY",
+            "\"${replicateApiKey.escapeForBuildConfig()}\""
+        )
+        buildConfigField(
+            "String",
+            "REPLICATE_CONTROLNET_VERSION",
+            "\"${replicateControlnetVersion.escapeForBuildConfig()}\""
         )
     }
 

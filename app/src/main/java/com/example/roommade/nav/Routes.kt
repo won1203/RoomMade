@@ -13,5 +13,5 @@ sealed class Route(val path: String) {
     data object Result : Route("result")
     data object ShoppingWeb : Route("shopping_web")
     data object Placement : Route("placement")
+    data object AiImage : Route("ai_image")
 }
-
