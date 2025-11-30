@@ -250,6 +250,9 @@ private fun DrawScope.drawPlan(
             FurnCategory.SOFA -> Color(0xFFC7F2FF)
             FurnCategory.WARDROBE -> Color(0xFFD0F5CB)
             FurnCategory.TABLE -> Color(0xFFEFD3D7)
+            FurnCategory.CHAIR -> Color(0xFFFFE4C7)
+            FurnCategory.LIGHTING -> Color(0xFFFFF6B0)
+            FurnCategory.RUG -> Color(0xFFCCE9FF)
             else -> Color(0xFFE9ECEF)
         }
         val topLeft = Offset(f.rect.left, f.rect.top)

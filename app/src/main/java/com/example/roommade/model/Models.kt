@@ -3,7 +3,7 @@ package com.example.roommade.model
 import android.graphics.RectF
 
 enum class OpeningType { DOOR, WINDOW }
-enum class FurnCategory { BED, DESK, SOFA, WARDROBE, TABLE, OTHER }
+enum class FurnCategory { BED, DESK, SOFA, WARDROBE, TABLE, CHAIR, LIGHTING, RUG, OTHER }
 
 enum class FurnOrigin { INVENTORY, CATALOG, MANUAL }
 

@@ -345,21 +345,37 @@ class FloorPlanViewModel(
         FurnCategory.SOFA -> 1800 to 900
         FurnCategory.WARDROBE -> 1200 to 600
         FurnCategory.TABLE -> 800 to 800
+        FurnCategory.CHAIR -> 520 to 520
+        FurnCategory.LIGHTING -> 360 to 360
+        FurnCategory.RUG -> 1600 to 2000
         FurnCategory.OTHER -> 700 to 700
     }
 
     private fun cartTag(id: String): String = "$CART_TAG_PREFIX$id"
 
-    private fun guessCategoryFromText(text: String): FurnCategory {
-        val normalized = text.lowercase(Locale.ROOT)
-        return when {
-            listOf("침대", "bed").any { normalized.contains(it) } -> FurnCategory.BED
-            listOf("소파", "sofa", "카우치").any { normalized.contains(it) } -> FurnCategory.SOFA
-            listOf("테이블", "식탁", "table", "dining").any { normalized.contains(it) } -> FurnCategory.TABLE
-            listOf("책상", "desk").any { normalized.contains(it) } -> FurnCategory.DESK
-            listOf("옷장", "수납", "wardrobe", "closet", "수납장").any { normalized.contains(it) } -> FurnCategory.WARDROBE
-            else -> FurnCategory.OTHER
+    private val categoryKeywords: List<Pair<FurnCategory, List<String>>> = listOf(
+        FurnCategory.BED to listOf("침대", "bed", "매트리스", "mattress"),
+        FurnCategory.SOFA to listOf("소파", "sofa", "카우치"),
+        FurnCategory.TABLE to listOf("테이블", "식탁", "table", "dining"),
+        FurnCategory.DESK to listOf("책상", "desk"),
+        FurnCategory.WARDROBE to listOf("옷장", "수납", "wardrobe", "closet", "수납장"),
+        FurnCategory.CHAIR to listOf("의자", "체어", "chair", "stool", "벤치", "암체어"),
+        FurnCategory.LIGHTING to listOf("조명", "램프", "스탠드", "무드등", "무드", "light", "lamp"),
+        FurnCategory.RUG to listOf("러그", "카펫", "카페트", "카펫트", "매트", "러그매트", "carpet", "rug")
+    )
+
+    private fun guessCategoryFromText(text: String, hint: String? = null): FurnCategory {
+        val normalizedSources = buildList {
+            hint?.lowercase(Locale.ROOT)?.let { add(it) }
+            add(text.lowercase(Locale.ROOT))
         }
+        for ((category, keywords) in categoryKeywords) {
+            val matched = normalizedSources.any { source ->
+                keywords.any { keyword -> source.contains(keyword) }
+            }
+            if (matched) return category
+        }
+        return FurnCategory.OTHER
     }
 
     // ---------------------------------------------------------------------
@@ -548,7 +564,7 @@ class FloorPlanViewModel(
         val additions = cartItems.map { item ->
             val tag = cartTag(item.id)
             val keptRect = existingCart[tag]?.rect
-            val category = guessCategoryFromText(item.title)
+            val category = guessCategoryFromText(item.title, shoppingCategoryFilter)
             val (widthMm, heightMm) = defaultSizeMm(category)
             val widthPx = widthMm / mmPerPx
             val heightPx = heightMm / mmPerPx
