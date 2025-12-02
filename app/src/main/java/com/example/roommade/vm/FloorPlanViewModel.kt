@@ -116,6 +116,16 @@ class FloorPlanViewModel(
     var placementRendered by mutableStateOf(false)
         private set
 
+    data class GeneratedBoard(
+        val id: String,
+        val imageUrl: String,
+        val concept: String,
+        val roomCategory: String
+    )
+
+    var generatedBoards by mutableStateOf<List<GeneratedBoard>>(emptyList())
+        private set
+
     private var analyzeJob: Job? = null
     private var shoppingJob: Job? = null
 
@@ -583,6 +593,17 @@ class FloorPlanViewModel(
         }
 
         floorPlan = floorPlan.copy(furnitures = preserved + additions)
+    }
+
+    fun saveGeneratedBoard(imageUrl: String) {
+        val id = "gen_${System.currentTimeMillis()}"
+        val entry = GeneratedBoard(
+            id = id,
+            imageUrl = imageUrl,
+            concept = conceptText,
+            roomCategory = roomCategory.korLabel()
+        )
+        generatedBoards = listOf(entry) + generatedBoards
     }
 
     fun markPlacementRendered() {

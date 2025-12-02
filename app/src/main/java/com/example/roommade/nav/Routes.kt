@@ -9,4 +9,7 @@ sealed class Route(val path: String) {
     data object ShoppingWeb : Route("shopping_web")
     data object ExampleRoom : Route("example_room")
     data object AiImage : Route("ai_image")
+    // 신규 탭 라우트
+    data object Cart : Route("cart")
+    data object Library : Route("library")
 }
