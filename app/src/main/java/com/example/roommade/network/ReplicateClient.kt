@@ -1,5 +1,6 @@
 package com.example.roommade.network
 
+import android.util.Log
 import com.example.roommade.BuildConfig
 import java.io.IOException
 import kotlin.time.Duration.Companion.seconds
@@ -16,11 +17,14 @@ import org.json.JSONObject
 class ReplicateClient(
     private val httpClient: OkHttpClient = defaultClient()
 ) {
+    /**
+     * 텍스트 전용/이미지-조건 모델 모두 지원:
+     * - image가 null이면 텍스트 프롬프트만 사용
+     * - image가 있으면 입력 이미지로 함께 보냄 (예: 빈 방 예시 → 최종 이미지)
+     */
     suspend fun generate(
         prompt: String,
-        controlImage: String,
-        steps: Int = 20,
-        guidanceScale: Double = 7.5
+        image: String? = null
     ): String {
         requireConfig()
         val version = BuildConfig.REPLICATE_CONTROLNET_VERSION
@@ -30,9 +34,7 @@ class ReplicateClient(
                 "input",
                 JSONObject().apply {
                     put("prompt", prompt)
-                    put("control_image", controlImage)
-                    put("num_inference_steps", steps)
-                    put("guidance_scale", guidanceScale)
+                    image?.let { put("image", it) }
                 }
             )
         }
@@ -42,18 +44,20 @@ class ReplicateClient(
         repeat(MAX_POLL) {
             if (current.status == "succeeded") return@repeat
             if (current.status == "failed" || current.status == "canceled") {
-                throw IllegalStateException(current.error ?: "Replicate 요청이 실패했습니다: ${current.status}")
+                throw IllegalStateException(current.error ?: "Replicate 요청에 실패했습니다: ${current.status}")
             }
             delay(POLL_DELAY.inWholeMilliseconds)
             current = fetchPrediction(current.id)
         }
 
         if (current.status != "succeeded") {
-            throw IllegalStateException("AI 생성이 완료되지 않았습니다: ${current.status}")
+            throw IllegalStateException("AI 생성이 완료되지 않았습니다: ${current.status} / ${current.error ?: "no error"}")
         }
 
-        val url = current.output.firstOrNull()
-            ?: throw IllegalStateException(current.error ?: "생성된 이미지 URL이 비어 있습니다.")
+        // 일부 모델은 프리뷰/최종을 배열로 반환하므로 마지막 유효 항목을 우선 사용
+        val url = current.output.lastOrNull { it.isNotBlank() }
+            ?: current.output.firstOrNull()
+            ?: throw IllegalStateException(current.error ?: "생성 이미지 URL이 비어 있습니다.")
         return url
     }
 
@@ -64,6 +68,7 @@ class ReplicateClient(
             .post(body.toString().toRequestBody(mediaType))
             .build()
         val json = requestJson(request)
+        Log.d(LOG_TAG, "createPrediction response: $json")
         return parsePrediction(json)
     }
 
@@ -73,20 +78,17 @@ class ReplicateClient(
             .get()
             .build()
         val json = requestJson(request)
+        Log.d(LOG_TAG, "fetchPrediction response: $json")
         return parsePrediction(json)
     }
 
     private suspend fun requestJson(request: Request): JSONObject {
-        val responseBody = withContext(Dispatchers.IO) {
-            httpClient.newCall(request).execute()
-        }.use { response ->
-            val body = response.body?.string()
-            if (!response.isSuccessful || body == null) {
-                throw IOException("Replicate API 호출 실패 (${response.code}): ${response.message}")
-            }
-            body
+        val response = withContext(Dispatchers.IO) { httpClient.newCall(request).execute() }
+        val bodyStr = response.use { it.body?.string() }
+        if (!response.isSuccessful || bodyStr == null) {
+            throw IOException("Replicate API 실패 (${response.code}): ${response.message} / ${bodyStr ?: "empty body"}")
         }
-        return JSONObject(responseBody)
+        return JSONObject(bodyStr)
     }
 
     private fun parsePrediction(json: JSONObject): PredictionResponse {
@@ -105,10 +107,10 @@ class ReplicateClient(
 
     private fun requireConfig() {
         if (BuildConfig.REPLICATE_API_KEY.isBlank()) {
-            throw IllegalStateException("REPLICATE_API_KEY가 설정되지 않았습니다. local.properties 또는 환경 변수에 키를 추가하세요.")
+            throw IllegalStateException("REPLICATE_API_KEY가 설정되지 않았으니 local.properties 또는 환경 변수에 추가하세요.")
         }
         if (BuildConfig.REPLICATE_CONTROLNET_VERSION.isBlank()) {
-            throw IllegalStateException("REPLICATE_CONTROLNET_VERSION이 설정되지 않았습니다. Replicate 버전 ID를 설정하세요.")
+            throw IllegalStateException("REPLICATE_CONTROLNET_VERSION이 설정되지 않았으니 모델 버전 ID를 지정하세요.")
         }
     }
 
@@ -121,8 +123,9 @@ class ReplicateClient(
 
     companion object {
         private const val BASE_URL = "https://api.replicate.com/v1"
-        private val POLL_DELAY = 1.5.seconds
-        private const val MAX_POLL = 30
+        private val POLL_DELAY = 2.seconds
+        private const val MAX_POLL = 60
+        private const val LOG_TAG = "ReplicateClient"
 
         private fun defaultClient(): OkHttpClient =
             OkHttpClient.Builder()
@@ -136,3 +139,4 @@ class ReplicateClient(
                 .build()
     }
 }
+

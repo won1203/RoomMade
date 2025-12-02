@@ -39,27 +39,6 @@ class MainActivity : ComponentActivity() {
                     }
                     composable(Route.RoomCategory.path) {
                         RoomCategoryScreen(
-                            onNext = { nav.navigate(Route.StructureArea.path) },
-                            onBack = { nav.popBackStack() },
-                            vm = vm
-                        )
-                    }
-                    composable(Route.StructureArea.path) {
-                        StructureAreaScreen(
-                            onNext = { nav.navigate(Route.StructureInventory.path) },
-                            onBack = { nav.popBackStack() },
-                            vm = vm
-                        )
-                    }
-                    composable(Route.StructureInventory.path) {
-                        StructureInventoryScreen(
-                            onNext = { nav.navigate(Route.Concept.path) },
-                            onBack = { nav.popBackStack() },
-                            vm = vm
-                        )
-                    }
-                    composable(Route.StructureLayout.path) {
-                        StructureLayoutScreen(
                             onNext = { nav.navigate(Route.Concept.path) },
                             onBack = { nav.popBackStack() },
                             vm = vm
@@ -92,20 +71,6 @@ class MainActivity : ComponentActivity() {
                             vm = vm
                         )
                     }
-                    composable(Route.Plans.path) {
-                        PlanSelectionScreen(
-                            onSelectPlan = { nav.navigate(Route.Result.path) },
-                            onBack = { nav.popBackStack() },
-                            vm = vm
-                        )
-                    }
-                    composable(Route.Result.path) {
-                        ResultScreen(
-                            onSearch = { navigateToShoppingWeb() },
-                            onBack = { nav.popBackStack() },
-                            vm = vm
-                        )
-                    }
                     composable(
                         route = "${Route.ShoppingWeb.path}?query={query}",
                         arguments = listOf(
@@ -120,15 +85,14 @@ class MainActivity : ComponentActivity() {
                             query = rawQuery,
                             vm = vm,
                             onBack = { nav.popBackStack() },
-                            onGoPlacement = { nav.navigate(Route.Placement.path) }
+                            onGoPlacement = { nav.navigate(Route.ExampleRoom.path) }
                         )
                     }
-                    composable(Route.Placement.path) {
-                        PlacementScreen(
+                    composable(Route.ExampleRoom.path) {
+                        ExampleRoomSelectionScreen(
+                            vm = vm,
                             onBack = { nav.popBackStack() },
-                            onRender = { vm.markPlacementRendered() },
-                            onGenerateAi = { nav.navigate(Route.AiImage.path) },
-                            vm = vm
+                            onGenerate = { nav.navigate(Route.AiImage.path) }
                         )
                     }
                     composable(Route.AiImage.path) {

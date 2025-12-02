@@ -29,7 +29,8 @@ fun RoomCategoryScreen(
     onBack: () -> Unit,
     vm: FloorPlanViewModel
 ) {
-    val categories = RoomCategory.values()
+    // 현재는 주방을 제외한 2개 카테고리만 노출
+    val categories = listOf(RoomCategory.MASTER_BEDROOM, RoomCategory.LIVING_ROOM)
 
     Column(
         modifier = Modifier

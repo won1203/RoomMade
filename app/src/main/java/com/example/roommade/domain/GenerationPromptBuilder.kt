@@ -1,11 +1,11 @@
 package com.example.roommade.domain
 
-import com.example.roommade.model.FurnCategory
 import com.example.roommade.model.Furniture
 import com.example.roommade.model.RoomCategory
+import com.example.roommade.model.enLabel
 
 /**
- * 단일 책임: 프롬프트 생성. 다른 곳에서 문자열을 조합하지 않는다.
+ * Single responsibility: build the textual prompt for Replicate.
  */
 object GenerationPromptBuilder {
     fun build(
@@ -14,31 +14,40 @@ object GenerationPromptBuilder {
         roomCategory: RoomCategory,
         furnitures: List<Furniture>
     ): String {
-        val styles = if (styleTags.isEmpty()) "minimal" else styleTags.joinToString(", ")
-        val furnitureSummary = summarizeFurniture(furnitures)
-        val base = "A photorealistic ${roomCategory.name.lowercase()} interior, $styles style, with $furnitureSummary."
-        return if (concept.isBlank()) base else "$base Details: ${concept.trim()}"
+        val furnitureList = buildFurnitureList(furnitures)
+        val tokens = buildList {
+            addAll(styleTokens(styleTags))
+            add(roomLabel(roomCategory))
+            add("neutral palette")
+            add("follow the sketch layout")
+            add("match positions and sizes of $furnitureList")
+            add("interior design")
+            add("photorealistic")
+            add("soft lighting")
+            add("high quality")
+        }
+        return tokens.joinToString(", ")
     }
 
-    private fun summarizeFurniture(items: List<Furniture>): String {
-        if (items.isEmpty()) return "no furniture placed"
+    private fun styleTokens(styleTags: Set<String>): List<String> =
+        styleTags
+            .filter { it.isNotBlank() }
+            .map { it.trim() }
+
+    private fun roomLabel(roomCategory: RoomCategory): String = when (roomCategory) {
+        RoomCategory.MASTER_BEDROOM -> "master bedroom"
+        RoomCategory.LIVING_ROOM -> "living room"
+    }
+
+    private fun buildFurnitureList(items: List<Furniture>): String {
+        if (items.isEmpty()) return "no furniture"
         return items
             .groupBy { it.category }
             .entries
-            .joinToString { (category, list) ->
-                "${list.size} ${categoryLabel(category)}"
+            .joinToString(", ") { (category, list) ->
+                val label = category.enLabel()
+                val count = list.size
+                if (count > 1) "$count ${label.plural}" else label.singular
             }
-    }
-
-    private fun categoryLabel(category: FurnCategory): String = when (category) {
-        FurnCategory.BED -> "beds"
-        FurnCategory.DESK -> "desks"
-        FurnCategory.SOFA -> "sofas"
-        FurnCategory.WARDROBE -> "wardrobes"
-        FurnCategory.TABLE -> "tables"
-        FurnCategory.CHAIR -> "chairs"
-        FurnCategory.LIGHTING -> "lights"
-        FurnCategory.RUG -> "rugs"
-        FurnCategory.OTHER -> "furniture"
     }
 }

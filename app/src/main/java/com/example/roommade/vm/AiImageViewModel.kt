@@ -50,14 +50,20 @@ class AiImageViewModel(
     private var generateJob: Job? = null
     private var latestImageUrl: String? = null
 
-    fun generate(plan: FloorPlan, concept: String, styleTags: Set<String>, roomCategory: RoomCategory) {
+    fun generate(
+        plan: FloorPlan,
+        concept: String,
+        styleTags: Set<String>,
+        roomCategory: RoomCategory,
+        baseRoomImage: String? = null
+    ) {
         generateJob?.cancel()
         uiState = AiImageUiState.Generating
         latestSavedUri = null
 
         generateJob = viewModelScope.launch {
             try {
-                val url = useCase(plan, concept, styleTags, roomCategory)
+                val url = useCase(plan, concept, styleTags, roomCategory, baseRoomImage)
                 latestImageUrl = url
                 uiState = AiImageUiState.Success(url)
             } catch (c: CancellationException) {

@@ -1,4 +1,4 @@
-package com.example.roommade.vm
+﻿package com.example.roommade.vm
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -51,6 +51,9 @@ class FloorPlanViewModel(
         private set
 
     var selectedFurnitureIndex by mutableStateOf<Int?>(null)
+        private set
+
+    var selectedBaseRoomImage by mutableStateOf<String?>(null)
         private set
 
     var conceptText by mutableStateOf("")
@@ -172,6 +175,7 @@ class FloorPlanViewModel(
     fun selectRoomCategory(category: RoomCategory) {
         if (roomCategory == category) return
         roomCategory = category
+        selectedBaseRoomImage = null
         val defaults = category.defaults()
         roomSpec = normalizeRoomSpec(defaults.areaPyeong, defaults.aspect)
         refreshPlanScale()
@@ -354,31 +358,25 @@ class FloorPlanViewModel(
     private fun cartTag(id: String): String = "$CART_TAG_PREFIX$id"
 
     private val categoryKeywords: List<Pair<FurnCategory, List<String>>> = listOf(
-        FurnCategory.BED to listOf("침대", "bed", "매트리스", "mattress"),
-        FurnCategory.SOFA to listOf("소파", "sofa", "카우치"),
-        FurnCategory.TABLE to listOf("테이블", "식탁", "table", "dining"),
-        FurnCategory.DESK to listOf("책상", "desk"),
-        FurnCategory.WARDROBE to listOf("옷장", "수납", "wardrobe", "closet", "수납장"),
-        FurnCategory.CHAIR to listOf("의자", "체어", "chair", "stool", "벤치", "암체어"),
-        FurnCategory.LIGHTING to listOf("조명", "램프", "스탠드", "무드등", "무드", "light", "lamp"),
-        FurnCategory.RUG to listOf("러그", "카펫", "카페트", "카펫트", "매트", "러그매트", "carpet", "rug")
+        FurnCategory.BED to listOf("\uCE68\uB300", "bed", "\uB9E4\uD2B8\uB9AC\uC2A4", "mattress"),
+        FurnCategory.SOFA to listOf("\uC18C\uD30C", "sofa", "\uCE74\uC6B0\uCE58"),
+        FurnCategory.TABLE to listOf("\uD14C\uC774\uBE14", "\uC2DD\uD0D5", "table", "dining"),
+        FurnCategory.DESK to listOf("\uCC45\uC0C1", "desk"),
+        FurnCategory.WARDROBE to listOf("\uC637\uC7A5", "\uBD99\uBC15\uC774\uC7A5", "wardrobe", "closet", "\uC218\uB0A9\uC7A5"),
+        FurnCategory.CHAIR to listOf("\uC758\uC790", "\uCCB4\uC5B4", "chair", "stool", "\uBCA4\uCE58", "\uC555\uCCB4\uC5B4"),
+        FurnCategory.LIGHTING to listOf("\uC870\uBA85", "\uB7A8\uD504", "\uC2A4\uD0E4\uB4DC", "\uBB34\uB4DC\uB4F1", "\uBB34\uB4DC", "light", "lamp"),
+        FurnCategory.RUG to listOf("\uB7EC\uADF8", "\uCE74\uD3A0", "\uCE74\uD398\uD2B8", "\uCE74\uD3A0\uD2B8", "\uB9E4\uD2B8", "\uB7EC\uADF8\uB9E4\uD2B8", "carpet", "rug")
     )
 
-    private fun guessCategoryFromText(text: String, hint: String? = null): FurnCategory {
-        val normalizedSources = buildList {
-            hint?.lowercase(Locale.ROOT)?.let { add(it) }
-            add(text.lowercase(Locale.ROOT))
-        }
+    private fun guessCategoryFromText(text: String): FurnCategory {
+        val normalized = text.lowercase(Locale.ROOT)
         for ((category, keywords) in categoryKeywords) {
-            val matched = normalizedSources.any { source ->
-                keywords.any { keyword -> source.contains(keyword) }
+            if (keywords.any { keyword -> normalized.contains(keyword) }) {
+                return category
             }
-            if (matched) return category
         }
         return FurnCategory.OTHER
     }
-
-    // ---------------------------------------------------------------------
     // Style analysis and catalog selection
     // ---------------------------------------------------------------------
 
@@ -549,6 +547,10 @@ class FloorPlanViewModel(
         syncCartFurniture()
     }
 
+    fun selectBaseRoomImage(imageDataUri: String?) {
+        selectedBaseRoomImage = imageDataUri
+    }
+
     fun isInCart(itemId: String): Boolean = cartItems.any { it.id == itemId }
 
     fun cartCount(): Int = cartItems.size
@@ -564,7 +566,7 @@ class FloorPlanViewModel(
         val additions = cartItems.map { item ->
             val tag = cartTag(item.id)
             val keptRect = existingCart[tag]?.rect
-            val category = guessCategoryFromText(item.title, shoppingCategoryFilter)
+            val category = guessCategoryFromText(item.title)
             val (widthMm, heightMm) = defaultSizeMm(category)
             val widthPx = widthMm / mmPerPx
             val heightPx = heightMm / mmPerPx
@@ -993,3 +995,6 @@ class FloorPlanViewModel(
         }
     }
 }
+
+
+

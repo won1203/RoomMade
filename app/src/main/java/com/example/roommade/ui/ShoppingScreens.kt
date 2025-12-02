@@ -107,9 +107,6 @@ fun ShoppingWebViewScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                OutlinedButton(onClick = onBack, shape = RoundedCornerShape(12.dp)) {
-                    Text("뒤로")
-                }
             }
 
             SectionCard {
@@ -158,7 +155,7 @@ fun ShoppingWebViewScreen(
                                 enabled = cartCount > 0,
                                 shape = RoundedCornerShape(12.dp)
                             ) {
-                                Text("배치하기")
+                                Text("빈 방 예시 선택")
                             }
                         }
                     }

@@ -7,18 +7,15 @@ data class RoomCategoryDefaults(
 
 enum class RoomCategory {
     MASTER_BEDROOM,
-    LIVING_ROOM,
-    KITCHEN
+    LIVING_ROOM
 }
 
 fun RoomCategory.korLabel(): String = when (this) {
     RoomCategory.MASTER_BEDROOM -> "안방"
     RoomCategory.LIVING_ROOM -> "거실"
-    RoomCategory.KITCHEN -> "주방"
 }
 
 fun RoomCategory.defaults(): RoomCategoryDefaults = when (this) {
     RoomCategory.MASTER_BEDROOM -> RoomCategoryDefaults(areaPyeong = 6f, aspect = 1.2f)
     RoomCategory.LIVING_ROOM -> RoomCategoryDefaults(areaPyeong = 12f, aspect = 1.3f)
-    RoomCategory.KITCHEN -> RoomCategoryDefaults(areaPyeong = 6f, aspect = 1.1f)
 }

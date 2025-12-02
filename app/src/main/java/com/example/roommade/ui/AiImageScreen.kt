@@ -41,11 +41,12 @@ fun AiImageScreen(
     val concept = vm.conceptText
     val styles = vm.styleTags
     val roomCategory = vm.roomCategory
+    val baseRoomImage = vm.selectedBaseRoomImage
 
-    // 화면 진입 시 자동으로 한 번 생성 시도
-    LaunchedEffect(plan, concept, styles, roomCategory) {
+    // 화면 진입 시 자동으로 이미지 생성 시도
+    LaunchedEffect(plan, concept, styles, roomCategory, baseRoomImage) {
         if (uiState is AiImageUiState.Idle) {
-            aiVm.generate(plan, concept, styles, roomCategory)
+            aiVm.generate(plan, concept, styles, roomCategory, baseRoomImage)
         }
     }
 
@@ -64,20 +65,17 @@ fun AiImageScreen(
             Column {
                 Text("AI 이미지 생성", style = MaterialTheme.typography.headlineSmall)
                 Text(
-                    text = "완성된 배치도를 기반으로 ControlNet-Seg 모델로 방 이미지를 생성합니다.",
+                    text = "선택한 빈 방 예시와 감성 프롬프트를 조합해 실사 이미지를 생성합니다.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-            }
-            OutlinedButton(onClick = onBack) {
-                Text("뒤로")
             }
         }
 
         when (val state = uiState) {
             AiImageUiState.Idle -> {
                 Text(
-                    text = "배치도를 전송해 이미지를 생성하세요.",
+                    text = "배치도를 전송하면 이미지를 생성합니다.",
                     style = MaterialTheme.typography.bodyMedium
                 )
             }
@@ -89,7 +87,7 @@ fun AiImageScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     CircularProgressIndicator()
-                    Text("이미지 생성 중...", style = MaterialTheme.typography.bodyMedium)
+                    Text("이미지 생성 중..", style = MaterialTheme.typography.bodyMedium)
                 }
             }
 
@@ -103,7 +101,7 @@ fun AiImageScreen(
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         AsyncImage(
                             model = state.imageUrl,
-                            contentDescription = "생성된 방 이미지"
+                            contentDescription = "생성된 이미지"
                         )
                     }
                 }
@@ -115,7 +113,7 @@ fun AiImageScreen(
                         onClick = { aiVm.saveToGallery(context) },
                         enabled = !aiVm.isSaving
                     ) {
-                        Text(if (aiVm.isSaving) "저장 중..." else "갤러리에 저장")
+                        Text(if (aiVm.isSaving) "저장 중.." else "갤러리에 저장")
                     }
                     Button(
                         onClick = { aiVm.share(context) },
@@ -151,17 +149,14 @@ fun AiImageScreen(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            OutlinedButton(
-                onClick = onBack,
-                modifier = Modifier.weight(1f)
-            ) { Text("뒤로") }
             Button(
                 onClick = {
                     aiVm.generate(
                         plan = plan,
                         concept = concept,
                         styleTags = styles,
-                        roomCategory = roomCategory
+                        roomCategory = roomCategory,
+                        baseRoomImage = baseRoomImage
                     )
                 },
                 modifier = Modifier.weight(1f)

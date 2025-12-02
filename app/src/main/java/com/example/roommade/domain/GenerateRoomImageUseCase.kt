@@ -12,11 +12,14 @@ class GenerateRoomImageUseCase(
         plan: FloorPlan,
         concept: String,
         styleTags: Set<String>,
-        roomCategory: RoomCategory
+        roomCategory: RoomCategory,
+        baseRoomImage: String? = null
     ): String {
-        val controlBitmap = FloorPlanRasterizer.toSegBitmap(plan)
-        val controlImage = controlBitmap.toBase64PngDataUri()
         val prompt = GenerationPromptBuilder.build(concept, styleTags, roomCategory, plan.furnitures)
-        return replicateClient.generate(prompt = prompt, controlImage = controlImage)
+        // 선택된 빈 방 이미지(예시)와 프롬프트를 조합해 img2img로 생성. 없으면 텍스트만 사용.
+        return replicateClient.generate(
+            prompt = prompt,
+            image = baseRoomImage
+        )
     }
 }
