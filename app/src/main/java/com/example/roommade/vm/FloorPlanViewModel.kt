@@ -110,7 +110,12 @@ class FloorPlanViewModel(
     var shoppingCategoryFilter by mutableStateOf<String?>(null)
         private set
 
-    var cartItems by mutableStateOf<List<NaverShoppingItem>>(emptyList())
+    data class CartEntry(
+        val sessionId: String?,
+        val item: NaverShoppingItem
+    )
+
+    var cartItems by mutableStateOf<List<CartEntry>>(emptyList())
         private set
 
     var placementRendered by mutableStateOf(false)
@@ -120,6 +125,7 @@ class FloorPlanViewModel(
         val id: String,
         val imageUrl: String,
         val concept: String,
+        val styleLabel: String,
         val roomCategory: String
     )
 
@@ -547,11 +553,12 @@ class FloorPlanViewModel(
     // ---------------------------------------------------------------------
 
     fun toggleCartItem(item: NaverShoppingItem) {
-        val exists = cartItems.any { it.id == item.id }
+        val currentSession = generatedBoards.firstOrNull()?.id
+        val exists = cartItems.any { it.item.id == item.id }
         cartItems = if (exists) {
-            cartItems.filterNot { it.id == item.id }
+            cartItems.filterNot { it.item.id == item.id }
         } else {
-            cartItems + item
+            cartItems + CartEntry(sessionId = currentSession, item = item)
         }
         placementRendered = false
         syncCartFurniture()
@@ -561,7 +568,7 @@ class FloorPlanViewModel(
         selectedBaseRoomImage = imageDataUri
     }
 
-    fun isInCart(itemId: String): Boolean = cartItems.any { it.id == itemId }
+    fun isInCart(itemId: String): Boolean = cartItems.any { it.item.id == itemId }
 
     fun cartCount(): Int = cartItems.size
 
@@ -573,7 +580,8 @@ class FloorPlanViewModel(
             .associateBy { it.tag }
         val preserved = floorPlan.furnitures.filterNot { it.tag?.startsWith(CART_TAG_PREFIX) == true }
 
-        val additions = cartItems.map { item ->
+        val additions = cartItems.map { entry ->
+            val item = entry.item
             val tag = cartTag(item.id)
             val keptRect = existingCart[tag]?.rect
             val category = guessCategoryFromText(item.title)
@@ -596,14 +604,25 @@ class FloorPlanViewModel(
     }
 
     fun saveGeneratedBoard(imageUrl: String) {
+        if (generatedBoards.any { it.imageUrl == imageUrl }) return
         val id = "gen_${System.currentTimeMillis()}"
         val entry = GeneratedBoard(
             id = id,
             imageUrl = imageUrl,
             concept = conceptText,
+            styleLabel = primaryStyleLabel(),
             roomCategory = roomCategory.korLabel()
         )
         generatedBoards = listOf(entry) + generatedBoards
+    }
+
+    private fun primaryStyleLabel(): String {
+        val keyword = styleKeyword()?.ifBlank { null }
+        if (keyword != null) return keyword
+        val tag = styleTags.firstOrNull()?.ifBlank { null }
+        if (tag != null) return tag
+        if (conceptText.isNotBlank()) return conceptText
+        return "스타일 미분석"
     }
 
     fun markPlacementRendered() {

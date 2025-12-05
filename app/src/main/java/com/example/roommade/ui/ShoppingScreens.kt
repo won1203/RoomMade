@@ -40,8 +40,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.example.roommade.network.NaverShoppingItem
-import com.example.roommade.ui.SectionCard
-import com.example.roommade.ui.ScreenContainer
 import com.example.roommade.vm.FloorPlanViewModel
 import java.text.NumberFormat
 import java.util.Locale
@@ -88,8 +86,8 @@ fun ShoppingWebViewScreen(
     }
 
     ScreenContainer(
-        title = "AI 감성 기반 가구 추천",
-        subtitle = "감성 + 카테고리 조합으로 네이버 쇼핑을 검색합니다."
+        title = "추천 가구",
+        subtitle = "카테고리와 검색어로 원하는 가구를 찾아보세요"
     ) {
         Column(
             modifier = Modifier
@@ -103,7 +101,7 @@ fun ShoppingWebViewScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "추천 결과를 확인하고 필요한 가구를 담아보세요.",
+                    text = "추천 결과를 확인하고 필요한 가구를 찾아보세요.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -141,7 +139,7 @@ fun ShoppingWebViewScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("선택한 가구 ${cartCount}개", style = MaterialTheme.typography.bodyMedium)
+                        Text("장바구니: ${cartCount}개", style = MaterialTheme.typography.bodyMedium)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedButton(
                                 onClick = { cartExpanded = !cartExpanded },
@@ -155,13 +153,13 @@ fun ShoppingWebViewScreen(
                                 enabled = cartCount > 0,
                                 shape = RoundedCornerShape(12.dp)
                             ) {
-                                Text("빈 방 예시 선택")
+                                Text("배치 생성")
                             }
                         }
                     }
                     if (cartExpanded) {
                         CartItemsSummary(
-                            items = cartItems,
+                            items = cartItems.map { it.item },
                             formatter = formatter,
                             onRemove = { vm.toggleCartItem(it) }
                         )
@@ -171,11 +169,11 @@ fun ShoppingWebViewScreen(
                         modifier = Modifier.fillMaxWidth(),
                         enabled = hasCredential && !isLoading
                     ) {
-                        Text("추천 결과 새로고침")
+                        Text("추천 결과 불러오기")
                     }
                     if (!hasCredential) {
                         Text(
-                            text = "NAVER API 키가 필요합니다. local.properties 혹은 gradle.properties에 NAVER_CLIENT_ID/NAVER_CLIENT_SECRET를 설정하세요.",
+                            text = "네이버 쇼핑 함수 URL을 local.properties의 NAVER_SHOPPING_FUNCTION_URL로 설정하세요.",
                             color = MaterialTheme.colorScheme.error,
                             style = MaterialTheme.typography.bodySmall
                         )
@@ -264,7 +262,7 @@ private fun ShoppingResultCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "장바구니에 담기",
+                    text = "체크",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -290,14 +288,14 @@ private fun ShoppingResultCard(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
-            val mallInfo = item.mallName ?: "쇼핑몰 정보 없음"
+            val mallInfo = item.mallName ?: "판매처 정보 없음"
             Text(
                 text = "판매처: $mallInfo",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
-                text = "가격: ${formatter.format(item.price)} 원",
+                text = "가격 ${formatter.format(item.price)} 원",
                 style = MaterialTheme.typography.titleSmall
             )
             Spacer(modifier = Modifier.height(4.dp))
@@ -381,11 +379,9 @@ private val furnitureCategoryFilters = listOf(
     FurnitureCategoryFilter("전체", null),
     FurnitureCategoryFilter("침대", "침대"),
     FurnitureCategoryFilter("소파", "소파"),
-    FurnitureCategoryFilter("테이블", "테이블"),
+    FurnitureCategoryFilter("의자", "의자"),
     FurnitureCategoryFilter("책상", "책상"),
     FurnitureCategoryFilter("수납", "수납"),
-    FurnitureCategoryFilter("옷장", "옷장"),
-    FurnitureCategoryFilter("의자", "의자"),
     FurnitureCategoryFilter("조명", "조명"),
-    FurnitureCategoryFilter("카페트", "카페트")
+    FurnitureCategoryFilter("카펫", "카펫")
 )

@@ -7,6 +7,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose") // Kotlin 2.0+ required
+    id("com.google.gms.google-services")
 }
 
 private val localProperties: Properties = Properties().apply {
@@ -28,8 +29,12 @@ fun String.escapeForBuildConfig(): String =
 
 val naverClientId: String = credentialProperty("NAVER_CLIENT_ID")
 val naverClientSecret: String = credentialProperty("NAVER_CLIENT_SECRET")
-val replicateApiKey: String = credentialProperty("REPLICATE_API_KEY")
-val replicateControlnetVersion: String = credentialProperty("REPLICATE_CONTROLNET_VERSION")
+val vertexApiKey: String = credentialProperty("VERTEX_API_KEY")
+val vertexProjectId: String = credentialProperty("VERTEX_PROJECT_ID")
+val vertexLocation: String = credentialProperty("VERTEX_LOCATION")
+val vertexGeminiImageModel: String = credentialProperty("VERTEX_GEMINI_IMAGE_MODEL")
+val imageGenFunctionUrl: String = credentialProperty("IMAGE_GEN_FUNCTION_URL")
+val naverShoppingFunctionUrl: String = credentialProperty("NAVER_SHOPPING_FUNCTION_URL")
 
 android {
     namespace = "com.example.roommade"
@@ -54,13 +59,33 @@ android {
         )
         buildConfigField(
             "String",
-            "REPLICATE_API_KEY",
-            "\"${replicateApiKey.escapeForBuildConfig()}\""
+            "VERTEX_API_KEY",
+            "\"${vertexApiKey.escapeForBuildConfig()}\""
         )
         buildConfigField(
             "String",
-            "REPLICATE_CONTROLNET_VERSION",
-            "\"${replicateControlnetVersion.escapeForBuildConfig()}\""
+            "VERTEX_PROJECT_ID",
+            "\"${vertexProjectId.escapeForBuildConfig()}\""
+        )
+        buildConfigField(
+            "String",
+            "VERTEX_LOCATION",
+            "\"${vertexLocation.escapeForBuildConfig()}\""
+        )
+        buildConfigField(
+            "String",
+            "VERTEX_GEMINI_IMAGE_MODEL",
+            "\"${vertexGeminiImageModel.escapeForBuildConfig()}\""
+        )
+        buildConfigField(
+            "String",
+            "IMAGE_GEN_FUNCTION_URL",
+            "\"${imageGenFunctionUrl.escapeForBuildConfig()}\""
+        )
+        buildConfigField(
+            "String",
+            "NAVER_SHOPPING_FUNCTION_URL",
+            "\"${naverShoppingFunctionUrl.escapeForBuildConfig()}\""
         )
     }
 
@@ -112,6 +137,9 @@ dependencies {
     implementation("androidx.webkit:webkit:1.8.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("io.coil-kt:coil-compose:2.6.0")
+
+    implementation(platform("com.google.firebase:firebase-bom:34.6.0"))
+    implementation("com.google.firebase:firebase-analytics")
 }
 
 // Pin dependencies for legacy Android compatibility

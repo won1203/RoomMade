@@ -31,6 +31,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,6 +46,7 @@ import com.example.roommade.model.korLabel
 import com.example.roommade.util.toBase64PngDataUri
 import com.example.roommade.vm.FloorPlanViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
@@ -58,16 +60,14 @@ fun ExampleRoomSelectionScreen(
     val examples = remember(category) { ExampleRoomPresets.forCategory(context, category) }
     var selectedId by remember(examples) { mutableStateOf<String?>(null) }
     val selected = remember(selectedId, examples) { examples.firstOrNull { it.id == selectedId } }
+    var prepareError by remember { mutableStateOf<String?>(null) }
+    var isPreparing by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
+    // 선택을 해제했을 때만 즉시 클리어 (선택 후 화면 이동 시 취소되는 문제 방지)
     LaunchedEffect(selectedId) {
         if (selected == null) {
             vm.selectBaseRoomImage(null)
-        } else {
-            val dataUri = withContext(Dispatchers.IO) {
-                BitmapFactory.decodeResource(context.resources, selected.resId)
-                    ?.toBase64PngDataUri()
-            }
-            vm.selectBaseRoomImage(dataUri)
         }
     }
 
@@ -79,15 +79,34 @@ fun ExampleRoomSelectionScreen(
         modifier = Modifier.fillMaxSize(),
         bottomBar = {
             Button(
-                onClick = onGenerate,
-                enabled = selectedId != null,
+                onClick = {
+                    val target = selected ?: return@Button
+                    scope.launch {
+                        isPreparing = true
+                        prepareError = null
+                        try {
+                            val dataUri = withContext(Dispatchers.IO) {
+                                BitmapFactory.decodeResource(context.resources, target.resId)
+                                    ?.toBase64PngDataUri()
+                                    ?: throw IllegalStateException("예시 이미지를 불러오지 못했습니다.")
+                            }
+                            vm.selectBaseRoomImage(dataUri)
+                            onGenerate()
+                        } catch (t: Throwable) {
+                            prepareError = t.message ?: "예시 이미지를 준비하는 중 오류가 발생했습니다."
+                        } finally {
+                            isPreparing = false
+                        }
+                    }
+                },
+                enabled = selectedId != null && !isPreparing,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 12.dp)
                     .height(52.dp),
                 shape = RoundedCornerShape(14.dp)
             ) {
-                Text("AI 이미지 생성")
+                Text(if (isPreparing) "준비 중..." else "AI 이미지 생성")
             }
         }
     ) { innerPadding ->
@@ -100,9 +119,9 @@ fun ExampleRoomSelectionScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("빈 방 예시 선택", style = MaterialTheme.typography.titleLarge)
+                Text("샘플 방 이미지", style = MaterialTheme.typography.titleLarge)
                 Text(
-                    text = "${category.korLabel()}에 가까운 예시 빈 방을 선택하세요. 선택된 이미지와 자동 생성된 프롬프트를 조합해 최종 AI 이미지를 만듭니다.",
+                    text = "${category.korLabel()}에 맞는 샘플 이미지를 고른 뒤 감성 프롬프트와 함께 AI 이미지를 생성합니다.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -136,9 +155,9 @@ fun ExampleRoomSelectionScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Text("이미지를 선택해 주세요", style = MaterialTheme.typography.titleMedium)
+                        Text("예시 이미지를 선택해주세요", style = MaterialTheme.typography.titleMedium)
                         Text(
-                            "예시 이미지를 선택하면 여기에서 미리 볼 수 있어요.",
+                            "선택한 예시 이미지가 함께 보내져야 합니다.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -185,6 +204,14 @@ fun ExampleRoomSelectionScreen(
                     }
                 }
             }
+
+            prepareError?.let {
+                Text(
+                    text = it,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
         }
     }
 }
@@ -199,8 +226,8 @@ private data class ExampleRoom(
 private object ExampleRoomPresets {
     fun forCategory(context: android.content.Context, category: RoomCategory): List<ExampleRoom> {
         val (resIds, titlePrefix) = when (category) {
-            RoomCategory.MASTER_BEDROOM -> bedroomRes to "안방 예시"
-            RoomCategory.LIVING_ROOM -> livingRes to "거실 예시"
+            RoomCategory.MASTER_BEDROOM -> bedroomRes to "안방 샘플"
+            RoomCategory.LIVING_ROOM -> livingRes to "거실 샘플"
         }
         return resIds.mapIndexed { idx, resId ->
             val label = "$titlePrefix ${idx + 1}"

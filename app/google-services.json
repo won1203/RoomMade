@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "524418395612",
+    "project_id": "roommade-480203",
+    "storage_bucket": "roommade-480203.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:524418395612:android:1789ad627faad443773319",
+        "android_client_info": {
+          "package_name": "com.example.roommade"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDoOBy8eDpIj0tz2YL2ki3uJk8V2u-UMQ0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
