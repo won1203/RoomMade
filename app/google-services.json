@@ -12,7 +12,20 @@
           "package_name": "com.example.roommade"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "524418395612-7jmmdmr7g48oceaqsupc3qdjtk8ua0jh.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.roommade",
+            "certificate_hash": "596bac69ce378ba1956b1d35e6d31bdaa8d9af9b"
+          }
+        },
+        {
+          "client_id": "524418395612-e16vj4gviquji1ujdnoro59ui26s1c23.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyDoOBy8eDpIj0tz2YL2ki3uJk8V2u-UMQ0"
@@ -20,7 +33,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "524418395612-e16vj4gviquji1ujdnoro59ui26s1c23.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

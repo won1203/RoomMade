@@ -12,4 +12,5 @@ sealed class Route(val path: String) {
     // 신규 탭 라우트
     data object Cart : Route("cart")
     data object Library : Route("library")
+    data object Settings : Route("settings")
 }

@@ -10,6 +10,8 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.roommade.data.BoardRepository
+import com.example.roommade.data.FirestoreBoardRepository
 import com.example.roommade.ml.StyleAnalyzer
 import com.example.roommade.ml.StyleAnalyzer.StyleProbability
 import com.example.roommade.ml.StyleAnalyzerProvider
@@ -32,13 +34,15 @@ import java.util.Locale
 import kotlin.math.max
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 enum class AnalysisState { Idle, Running, Success, Failed }
 
 class FloorPlanViewModel(
     private val styleAnalyzer: StyleAnalyzer? = null,
-    private val shoppingClient: NaverShoppingClient = NaverShoppingClient()
+    private val shoppingClient: NaverShoppingClient = NaverShoppingClient(),
+    private val boardRepo: BoardRepository = FirestoreBoardRepository()
 ) : ViewModel() {
 
     var roomCategory by mutableStateOf(RoomCategory.MASTER_BEDROOM)
@@ -126,7 +130,8 @@ class FloorPlanViewModel(
         val imageUrl: String,
         val concept: String,
         val styleLabel: String,
-        val roomCategory: String
+        val roomCategory: String,
+        val createdAt: Long = System.currentTimeMillis()
     )
 
     var generatedBoards by mutableStateOf<List<GeneratedBoard>>(emptyList())
@@ -134,6 +139,29 @@ class FloorPlanViewModel(
 
     private var analyzeJob: Job? = null
     private var shoppingJob: Job? = null
+    private var boardsJob: Job? = null
+    private var currentUserId: String? = null
+
+    // ---------------------------------------------------------------------
+    // Auth and library sync
+    // ---------------------------------------------------------------------
+
+    fun attachUser(uid: String?) {
+        if (uid.isNullOrBlank()) {
+            currentUserId = null
+            boardsJob?.cancel()
+            generatedBoards = emptyList()
+            return
+        }
+        if (uid == currentUserId) return
+        currentUserId = uid
+        boardsJob?.cancel()
+        boardsJob = viewModelScope.launch {
+            boardRepo.observeBoards(uid).collectLatest { boards ->
+                generatedBoards = boards
+            }
+        }
+    }
 
     // ---------------------------------------------------------------------
     // Room specification and base layout
@@ -614,6 +642,15 @@ class FloorPlanViewModel(
             roomCategory = roomCategory.korLabel()
         )
         generatedBoards = listOf(entry) + generatedBoards
+        currentUserId?.let { uid ->
+            viewModelScope.launch {
+                try {
+                    boardRepo.upsert(uid, entry)
+                } catch (t: Throwable) {
+                    Log.e(LOG_TAG, "Failed to sync board to Firestore", t)
+                }
+            }
+        }
     }
 
     private fun primaryStyleLabel(): String {
@@ -1011,6 +1048,7 @@ class FloorPlanViewModel(
         super.onCleared()
         analyzeJob?.cancel()
         shoppingJob?.cancel()
+        boardsJob?.cancel()
     }
 
     companion object {
@@ -1027,7 +1065,11 @@ class FloorPlanViewModel(
                         val analyzer = StyleAnalyzerProvider.getOrNull(appContext)
                         val shoppingClient = NaverShoppingClient()
                         @Suppress("UNCHECKED_CAST")
-                        return FloorPlanViewModel(analyzer, shoppingClient) as T
+                        return FloorPlanViewModel(
+                            analyzer,
+                            shoppingClient,
+                            FirestoreBoardRepository()
+                        ) as T
                     }
                     throw IllegalArgumentException("Unknown ViewModel class: $modelClass")
                 }
