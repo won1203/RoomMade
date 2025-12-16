@@ -72,7 +72,7 @@ fun AiImageScreen(
 
     LaunchedEffect(vm.floorPlan, concept, styles, roomCategory, baseRoomImage) {
         if (baseRoomImage.isNullOrBlank()) {
-            inputError = "베이스 룸 이미지를 먼저 선택해주세요"
+            inputError = "예시 이미지를 먼저 선택해주세요"
             return@LaunchedEffect
         }
         val requestKey =
@@ -117,7 +117,7 @@ fun AiImageScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
-                        text = "AI 이미지를 생성 중...",
+                        text = "AI 이미지 생성 중...",
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.alpha(textAlpha)
                     )
@@ -205,7 +205,7 @@ fun AiImageScreen(
                     canGenerate = !baseRoomImage.isNullOrBlank(),
                     onRegenerate = {
                         if (baseRoomImage.isNullOrBlank()) {
-                            inputError = "베이스 룸 이미지를 먼저 선택해주세요"
+                            inputError = "예시 이미지를 먼저 선택해주세요"
                         } else {
                             inputError = null
                             vm.syncCartFurniture()

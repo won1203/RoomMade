@@ -59,12 +59,6 @@ fun CartScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("장바구니", style = MaterialTheme.typography.headlineSmall)
-        Text(
-            "세션별로 담긴 가구를 확인하세요.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-
         if (cart.isEmpty()) {
             Column(
                 modifier = Modifier.fillMaxSize(),

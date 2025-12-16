@@ -91,8 +91,7 @@ fun ShoppingWebViewScreen(
     }
 
     ScreenContainer(
-        title = "추천 가구",
-        subtitle = "카테고리와 검색어로 원하는 가구를 찾아보세요"
+        title = "추천 가구"
     ) {
         Column(
             modifier = Modifier
