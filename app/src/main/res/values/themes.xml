@@ -3,6 +3,7 @@
     <!-- 앱 전역 테마: Material3 NoActionBar 상속 -->
     <style name="Theme.RoomMade" parent="Theme.Material3.DayNight.NoActionBar">
         <!-- 필요 시 기본 색상/위젯 오버레이 커스텀 가능 -->
+        <item name="android:statusBarColor">@color/white</item>
+        <item name="android:windowLightStatusBar">true</item>
     </style>
 </resources>
-
