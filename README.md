@@ -9,43 +9,43 @@ RoomMade는 사용자의 감성/컨셉 텍스트를 분석해 인테리어 스�
 
 ### 로그인 화면
 
-![로그인 화면](docs/screenshots/01_login.png)
+![로그인 화면](docs/screenshots/login.png)
 
 ### 앱 시작 화면
 
-![앱 시작 화면](docs/screenshots/02_start.png)
+![앱 시작 화면](docs/screenshots/start.png)
 
 ### 감성 텍스트 입력 화면
 
-![감성 텍스트 입력 화면](docs/screenshots/03_concept_input.png)
+![감성 텍스트 입력 화면](docs/screenshots/input.png)
 
 ### 감성 분석 화면
 
-![감성 분석 화면](docs/screenshots/04_concept_analyzing.png)
+![감성 분석 화면](docs/screenshots/analyzing.png)
 
 ### 분석 결과 화면
 
-![분석 결과 화면](docs/screenshots/05_concept_result.png)
+![분석 결과 화면](docs/screenshots/result.png)
 
 ### 추천 가구 쇼핑 화면
 
-![추천 가구 쇼핑 화면](docs/screenshots/06_shopping.png)
+![추천 가구 쇼핑 화면](docs/screenshots/shopping.png)
 
 ### 예시 이미지 선택 화면
 
-![예시 이미지 선택 화면](docs/screenshots/07_example_room.png)
+![예시 이미지 선택 화면](docs/screenshots/example_room.png)
 
 ### 이미지 생성 화면
 
-![이미지 생성 화면](docs/screenshots/08_image_generation.png)
+![이미지 생성 화면](docs/screenshots/image_generation.png)
 
 ### 보관함 화면
 
-![보관함 화면](docs/screenshots/09_library.png)
+![보관함 화면](docs/screenshots/library.png)
 
 ### 장바구니 화면
 
-![장바구니 화면](docs/screenshots/10_cart.png)
+![장바구니 화면](docs/screenshots/cart.png)
 
 ## 주요 기능
 
