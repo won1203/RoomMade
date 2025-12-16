@@ -62,9 +62,14 @@ fun ShoppingWebViewScreen(
     var lastAutoQuery by remember { mutableStateOf("") }
     val categoryFilters = remember { furnitureCategoryFilters }
     val selectedCategory = vm.shoppingCategoryFilter
-    val cartCount = vm.cartCount()
-    val cartItems = vm.cartItems
+    val cartCount = vm.currentSessionCartCount()
+    val cartItems = vm.currentSessionCartItems()
     var cartExpanded by remember { mutableStateOf(false) }
+
+    // 추천 가구 화면 진입 시마다 새 쇼핑 세션을 시작해 이전 세션 장바구니가 노출되지 않도록 분리
+    LaunchedEffect(Unit) {
+        vm.startShoppingSession()
+    }
 
     LaunchedEffect(query) {
         if (query.isNotBlank()) {
@@ -219,7 +224,7 @@ fun ShoppingWebViewScreen(
                             ShoppingResultCard(
                                 item = item,
                                 formatter = formatter,
-                                isChecked = vm.isInCart(item.id),
+                                isChecked = vm.currentSessionCartItems().any { it.item.id == item.id },
                                 onToggle = { vm.toggleCartItem(item) },
                                 onOpenLink = { link ->
                                     if (link.isNotBlank()) {

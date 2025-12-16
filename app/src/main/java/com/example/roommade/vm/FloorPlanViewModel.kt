@@ -149,6 +149,30 @@ class FloorPlanViewModel(
     private var boardsJob: Job? = null
     private var currentUserId: String? = null
     private var currentSessionId: String? = null
+    private var lastSavedImageUrl: String? = null
+
+    fun beginNewCartSession() {
+        currentSessionId = "session_${System.currentTimeMillis()}"
+    }
+
+    /**
+     * 추천 가구 화면 전용: 항상 새 세션을 만들고, 새 세션과 충돌하는 잔여 아이템을 정리한다.
+     * 기존 세션(보드 ID나 이전 세션 ID)에 담긴 장바구니는 그대로 유지된다.
+     */
+    fun startShoppingSession() {
+        val newSession = "session_${System.currentTimeMillis()}"
+        currentSessionId = newSession
+        // 혹시 동일 ID가 이미 있었다면 제거 (실제론 없겠지만 안전)
+        cartItems = cartItems.filterNot { it.sessionId == newSession }
+    }
+
+    fun currentSessionCartItems(): List<CartEntry> {
+        val sid = currentSessionId
+        return if (sid != null) cartItems.filter { it.sessionId == sid } else emptyList()
+    }
+
+    fun currentSessionCartCount(): Int = currentSessionCartItems().size
+
     private val firestore by lazy { FirebaseFirestore.getInstance() }
 
     // ---------------------------------------------------------------------
@@ -171,7 +195,10 @@ class FloorPlanViewModel(
                 val current = generatedBoards.associateBy { it.id }.toMutableMap()
                 boards.forEach { current[it.id] = it }
                 generatedBoards = current.values.sortedByDescending { it.createdAt }
-                currentSessionId = generatedBoards.firstOrNull()?.id
+                if (currentSessionId == null || currentSessionId?.startsWith("session_") == true) {
+                    currentSessionId = generatedBoards.firstOrNull()?.id
+                }
+                pruneCartForExistingBoards()
             }
         }
         // Cart 로드
@@ -602,9 +629,10 @@ class FloorPlanViewModel(
             currentSessionId = generatedBoards.firstOrNull()?.id ?: "session_${System.currentTimeMillis()}"
         }
         val currentSession = currentSessionId
-        val exists = cartItems.any { it.item.id == item.id }
-        cartItems = if (exists) {
-            cartItems.filterNot { it.item.id == item.id }
+        val existsInSession = cartItems.any { it.item.id == item.id && it.sessionId == currentSession }
+        cartItems = if (existsInSession) {
+            // 현재 세션의 동일 상품만 제거하고, 다른 세션의 데이터는 유지
+            cartItems.filterNot { it.item.id == item.id && it.sessionId == currentSession }
         } else {
             cartItems + CartEntry(sessionId = currentSession, item = item)
         }
@@ -678,8 +706,25 @@ class FloorPlanViewModel(
             val restored = items.mapNotNull { (it as? Map<*, *>)?.toCartEntry() }
             cartItems = restored
             syncCartFurniture()
+            pruneCartForExistingBoards()
         } catch (t: Throwable) {
             Log.e(LOG_TAG, "Failed to load cart", t)
+        }
+    }
+
+    private fun pruneCartForExistingBoards() {
+        // 보관함에 없는 세션은 제거하되, 현재 진행 중인 세션은 예외로 둔다.
+        val validSessions = generatedBoards.map { it.id }.toMutableSet()
+        currentSessionId?.let { validSessions += it }
+        val filtered = cartItems.filter { it.sessionId != null && it.sessionId in validSessions }
+        val removed = filtered.size != cartItems.size
+        cartItems = filtered
+        if (currentSessionId != null && currentSessionId !in validSessions) {
+            currentSessionId = validSessions.firstOrNull()
+        }
+        if (removed) {
+            syncCartFurniture()
+            persistCartRemote()
         }
     }
 
@@ -748,7 +793,6 @@ class FloorPlanViewModel(
     fun isInCart(itemId: String): Boolean = cartItems.any { it.item.id == itemId }
 
     fun cartCount(): Int = cartItems.size
-
     fun syncCartFurniture() {
         val mmPerPx = floorPlan.scaleMmPerPx.coerceAtLeast(1f)
         val bounds = floorPlan.bounds
@@ -757,7 +801,7 @@ class FloorPlanViewModel(
             .associateBy { it.tag }
         val preserved = floorPlan.furnitures.filterNot { it.tag?.startsWith(CART_TAG_PREFIX) == true }
 
-        val additions = cartItems.map { entry ->
+        val additions = currentSessionCartItems().map { entry ->
             val item = entry.item
             val tag = cartTag(item.id)
             val keptRect = existingCart[tag]?.rect
@@ -782,7 +826,21 @@ class FloorPlanViewModel(
 
     fun saveGeneratedBoard(imageUrl: String) {
         val safeUrl = normalizeImageForSync(imageUrl)
-        if (generatedBoards.any { it.imageUrl == safeUrl }) return
+        // 동일 이미지가 이미 보관함에 있으면 중복 생성 대신 해당 세션에 연결만 갱신
+        val existing = generatedBoards.firstOrNull { it.imageUrl == safeUrl }
+        val previousSession = currentSessionId
+        if (existing != null) {
+            currentSessionId = existing.id
+            cartItems = cartItems.map {
+                if (it.sessionId == previousSession || (it.sessionId == null && previousSession != null)) {
+                    CartEntry(sessionId = existing.id, item = it.item)
+                } else it
+            }
+            syncCartFurniture()
+            persistCartRemote()
+            return
+        }
+        if (lastSavedImageUrl == safeUrl) return
         val id = "gen_${System.currentTimeMillis()}"
         val entry = GeneratedBoard(
             id = id,
@@ -791,13 +849,16 @@ class FloorPlanViewModel(
             styleLabel = primaryStyleLabel(),
             roomCategory = roomCategory.korLabel()
         )
+        lastSavedImageUrl = safeUrl
         generatedBoards = listOf(entry) + generatedBoards
         currentSessionId = id
-        // 기존 임시 세션(null 혹은 session_*)으로 담긴 장바구니 항목을 새 세션 ID로 갱신
-        cartItems = cartItems.map {
-            if (it.sessionId == null || it.sessionId?.startsWith("session_") == true) {
-                CartEntry(sessionId = id, item = it.item)
-            } else it
+        // 임시 세션(session_*)으로 담긴 항목만 새 보드 ID로 갱신 (기존 보드 세션은 유지)
+        if (previousSession != null && previousSession.startsWith("session_")) {
+            cartItems = cartItems.map {
+                if (it.sessionId == previousSession || (it.sessionId == null && previousSession != null)) {
+                    CartEntry(sessionId = id, item = it.item)
+                } else it
+            }
         }
         persistCartRemote()
         currentUserId?.let { uid ->

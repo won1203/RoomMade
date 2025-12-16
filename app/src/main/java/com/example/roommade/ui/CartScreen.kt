@@ -42,8 +42,14 @@ fun CartScreen(
     onSearchMore: () -> Unit
 ) {
     val cart = vm.cartItems
-    val grouped = cart.groupBy { it.sessionId }
     val boards = vm.generatedBoards.associateBy { it.id }
+    val grouped = cart
+        .groupBy { it.sessionId }
+        .toList()
+        .sortedByDescending { (sessionId, _) ->
+            boards[sessionId]?.createdAt
+                ?: Long.MIN_VALUE
+        }
     val context = LocalContext.current
 
     Column(
@@ -73,13 +79,13 @@ fun CartScreen(
         LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp)) {
             grouped.forEach { (sessionId, itemsInSession) ->
                 val board: GeneratedBoard? = sessionId?.let { boards[it] }
-                val headerTitle = board?.styleLabel ?: "세션 구분 없음"
+                val headerTitle = board?.styleLabel?.ifBlank { "스타일 미분석" } ?: "보관함 미리보기 없음"
                 val headerSubtitle = when {
-                    board != null -> board.roomCategory
-                    sessionId != null -> "세션 ID: ${sessionId.take(8)}"
-                    else -> "공통 장바구니"
+                    board != null -> "방 카테고리: ${board.roomCategory}"
+                    sessionId != null -> "보관함과 연결되지 않은 세션"
+                    else -> "로그인/익명 공용 장바구니"
                 }
-                item(key = "header_$sessionId") {
+                item(key = "header_${sessionId ?: "shared"}") {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(
                             headerTitle,
@@ -121,7 +127,10 @@ fun CartScreen(
                         }
                     }
                 }
-                items(itemsInSession, key = { it.item.id }) { entry ->
+                items(
+                    itemsInSession,
+                    key = { entry -> "${entry.sessionId ?: "shared"}_${entry.item.id}" }
+                ) { entry ->
                     val item = entry.item
                     Card(
                         shape = RoundedCornerShape(14.dp),
