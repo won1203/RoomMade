@@ -75,7 +75,7 @@ fun CartScreen(
                 val board: GeneratedBoard? = sessionId?.let { boards[it] }
                 val headerTitle = board?.styleLabel ?: "세션 구분 없음"
                 val headerSubtitle = when {
-                    board != null -> board.roomCategory ?: "방 카테고리 없음"
+                    board != null -> board.roomCategory
                     sessionId != null -> "세션 ID: ${sessionId.take(8)}"
                     else -> "공통 장바구니"
                 }
@@ -91,14 +91,29 @@ fun CartScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         board?.let { b ->
-                            decodeDataUri(b.imageUrl)?.let { bmp ->
+                            val decoded = decodeDataUri(b.imageUrl)
+                            if (decoded != null) {
                                 Image(
-                                    bitmap = bmp.asImageBitmap(),
+                                    bitmap = decoded.asImageBitmap(),
                                     contentDescription = b.styleLabel,
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(top = 6.dp)
-                                        .height(120.dp)
+                                        .height(140.dp)
+                                        .clip(RoundedCornerShape(12.dp)),
+                                    contentScale = ContentScale.Crop
+                                )
+                            } else {
+                                AsyncImage(
+                                    model = ImageRequest.Builder(context)
+                                        .data(b.imageUrl)
+                                        .crossfade(true)
+                                        .build(),
+                                    contentDescription = b.styleLabel,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 6.dp)
+                                        .height(140.dp)
                                         .clip(RoundedCornerShape(12.dp)),
                                     contentScale = ContentScale.Crop
                                 )

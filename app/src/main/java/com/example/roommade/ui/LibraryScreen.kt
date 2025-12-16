@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -58,7 +59,8 @@ import kotlinx.coroutines.launch
 @Composable
 fun LibraryScreen(
     vm: FloorPlanViewModel,
-    onOpenGenerate: () -> Unit
+    onOpenGenerate: () -> Unit,
+    onDelete: (FloorPlanViewModel.GeneratedBoard) -> Unit
 ) {
     val boards = vm.generatedBoards
     val context = LocalContext.current
@@ -254,6 +256,17 @@ fun LibraryScreen(
                             enabled = !isSaving
                         ) {
                             Icon(Icons.Filled.Share, contentDescription = "공유")
+                        }
+                        IconButton(
+                            onClick = {
+                                if (!isSaving) {
+                                    onDelete(board)
+                                    selected = null
+                                }
+                            },
+                            enabled = !isSaving
+                        ) {
+                            Icon(Icons.Filled.Delete, contentDescription = "삭제")
                         }
                         if (isSaving) {
                             CircularProgressIndicator(

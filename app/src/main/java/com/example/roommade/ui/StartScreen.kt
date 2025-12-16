@@ -38,7 +38,7 @@ fun StartScreen(
                 textAlign = TextAlign.Center
             )
             Text(
-                text = "AI가 도와주는 인테리어 플래너",
+                text = "AI 인테리어 플래너",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
@@ -53,14 +53,5 @@ fun StartScreen(
                 Text("시작하기")
             }
         }
-        Text(
-            text = "v0.2 • Kotlin + Compose",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 8.dp),
-            textAlign = TextAlign.Center
-        )
     }
 }

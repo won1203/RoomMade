@@ -2,8 +2,10 @@
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.RectF
 import android.util.Log
+import android.util.Base64
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -30,12 +32,17 @@ import com.example.roommade.model.defaults
 import com.example.roommade.model.korLabel
 import com.example.roommade.network.NaverShoppingClient
 import com.example.roommade.network.NaverShoppingItem
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
+import java.io.ByteArrayOutputStream
 import java.util.Locale
 import kotlin.math.max
+import kotlin.math.min
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 
 enum class AnalysisState { Idle, Running, Success, Failed }
 
@@ -141,6 +148,8 @@ class FloorPlanViewModel(
     private var shoppingJob: Job? = null
     private var boardsJob: Job? = null
     private var currentUserId: String? = null
+    private var currentSessionId: String? = null
+    private val firestore by lazy { FirebaseFirestore.getInstance() }
 
     // ---------------------------------------------------------------------
     // Auth and library sync
@@ -158,8 +167,16 @@ class FloorPlanViewModel(
         boardsJob?.cancel()
         boardsJob = viewModelScope.launch {
             boardRepo.observeBoards(uid).collectLatest { boards ->
-                generatedBoards = boards
+                // 원격 동기화가 실패해 빈 리스트가 내려와도, 로컬에 이미 생성된 보드는 유지한 채 병합
+                val current = generatedBoards.associateBy { it.id }.toMutableMap()
+                boards.forEach { current[it.id] = it }
+                generatedBoards = current.values.sortedByDescending { it.createdAt }
+                currentSessionId = generatedBoards.firstOrNull()?.id
             }
+        }
+        // Cart 로드
+        viewModelScope.launch {
+            loadCart(uid)
         }
     }
 
@@ -581,7 +598,10 @@ class FloorPlanViewModel(
     // ---------------------------------------------------------------------
 
     fun toggleCartItem(item: NaverShoppingItem) {
-        val currentSession = generatedBoards.firstOrNull()?.id
+        if (currentSessionId == null) {
+            currentSessionId = generatedBoards.firstOrNull()?.id ?: "session_${System.currentTimeMillis()}"
+        }
+        val currentSession = currentSessionId
         val exists = cartItems.any { it.item.id == item.id }
         cartItems = if (exists) {
             cartItems.filterNot { it.item.id == item.id }
@@ -590,6 +610,135 @@ class FloorPlanViewModel(
         }
         placementRendered = false
         syncCartFurniture()
+        persistCartRemote()
+    }
+
+    private fun normalizeImageForSync(original: String): String {
+        if (!original.startsWith("data:image")) return original
+        val bitmap = decodeDataUri(original) ?: return original
+        val maxDim = 800
+        val scaled = if (bitmap.width > maxDim || bitmap.height > maxDim) {
+            val scale = min(
+                maxDim.toFloat() / bitmap.width.toFloat(),
+                maxDim.toFloat() / bitmap.height.toFloat()
+            )
+            val w = (bitmap.width * scale).toInt().coerceAtLeast(1)
+            val h = (bitmap.height * scale).toInt().coerceAtLeast(1)
+            Bitmap.createScaledBitmap(bitmap, w, h, true)
+        } else {
+            bitmap
+        }
+        return encodeToDataUri(scaled)
+    }
+
+    fun deleteBoard(board: GeneratedBoard) {
+        generatedBoards = generatedBoards.filterNot { it.id == board.id }
+        // 세션과 매핑된 장바구니 항목도 제거
+        cartItems = cartItems.filterNot { it.sessionId == board.id }
+        if (currentSessionId == board.id) {
+            currentSessionId = generatedBoards.firstOrNull()?.id
+        }
+        persistCartRemote()
+        currentUserId?.let { uid ->
+            viewModelScope.launch {
+                try {
+                    boardRepo.delete(uid, board.id)
+                } catch (t: Throwable) {
+                    Log.e(LOG_TAG, "Failed to delete board in Firestore", t)
+                }
+            }
+        }
+    }
+
+    private fun persistCartRemote() {
+        val uid = currentUserId ?: return
+        val snapshot = cartItems.map { it.toMap() }
+        viewModelScope.launch {
+            try {
+                firestore.collection("users")
+                    .document(uid)
+                    .collection("meta")
+                    .document("cart")
+                    .set(mapOf("items" to snapshot, "updatedAt" to System.currentTimeMillis()), SetOptions.merge())
+            } catch (t: Throwable) {
+                Log.e(LOG_TAG, "Failed to persist cart", t)
+            }
+        }
+    }
+
+    private suspend fun loadCart(uid: String) {
+        try {
+            val doc = firestore.collection("users")
+                .document(uid)
+                .collection("meta")
+                .document("cart")
+                .get()
+                .await()
+            val items = doc.get("items") as? List<*> ?: emptyList<Any>()
+            val restored = items.mapNotNull { (it as? Map<*, *>)?.toCartEntry() }
+            cartItems = restored
+            syncCartFurniture()
+        } catch (t: Throwable) {
+            Log.e(LOG_TAG, "Failed to load cart", t)
+        }
+    }
+
+    private fun CartEntry.toMap(): Map<String, Any?> = mapOf(
+        "sessionId" to sessionId,
+        "item" to mapOf(
+            "id" to item.id,
+            "title" to item.title,
+            "mallName" to item.mallName,
+            "price" to item.price,
+            "link" to item.link,
+            "imageUrl" to item.imageUrl
+        )
+    )
+
+    private fun Map<*, *>.toCartEntry(): CartEntry? {
+        val sessionId = this["sessionId"] as? String
+        val itemMap = this["item"] as? Map<*, *> ?: return null
+        val id = itemMap["id"] as? String ?: return null
+        val title = itemMap["title"] as? String ?: return null
+        val mallName = itemMap["mallName"] as? String
+        val price = (itemMap["price"] as? Number)?.toInt() ?: 0
+        val link = itemMap["link"] as? String ?: ""
+        val imageUrl = itemMap["imageUrl"] as? String
+        val item = NaverShoppingItem(
+            id = id,
+            title = title,
+            mallName = mallName,
+            price = price,
+            link = link,
+            imageUrl = imageUrl
+        )
+        return CartEntry(sessionId = sessionId, item = item)
+    }
+
+    private fun decodeDataUri(data: String?): Bitmap? {
+        if (data.isNullOrBlank()) return null
+        if (!data.startsWith("data:image")) return null
+        val comma = data.indexOf(',')
+        if (comma <= 0) return null
+        val base64Part = data.substring(comma + 1)
+        return try {
+            val bytes = Base64.decode(base64Part, Base64.DEFAULT)
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    private fun encodeToDataUri(bitmap: Bitmap): String {
+        return try {
+            val baos = ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 80, baos)
+            val encoded = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)
+            "data:image/jpeg;base64,$encoded"
+        } catch (_: Throwable) {
+            // fallback to original bitmap if encoding fails
+            "data:image/jpeg;base64,"
+        }
     }
 
     fun selectBaseRoomImage(imageDataUri: String?) {
@@ -632,16 +781,25 @@ class FloorPlanViewModel(
     }
 
     fun saveGeneratedBoard(imageUrl: String) {
-        if (generatedBoards.any { it.imageUrl == imageUrl }) return
+        val safeUrl = normalizeImageForSync(imageUrl)
+        if (generatedBoards.any { it.imageUrl == safeUrl }) return
         val id = "gen_${System.currentTimeMillis()}"
         val entry = GeneratedBoard(
             id = id,
-            imageUrl = imageUrl,
+            imageUrl = safeUrl,
             concept = conceptText,
             styleLabel = primaryStyleLabel(),
             roomCategory = roomCategory.korLabel()
         )
         generatedBoards = listOf(entry) + generatedBoards
+        currentSessionId = id
+        // 기존 임시 세션(null 혹은 session_*)으로 담긴 장바구니 항목을 새 세션 ID로 갱신
+        cartItems = cartItems.map {
+            if (it.sessionId == null || it.sessionId?.startsWith("session_") == true) {
+                CartEntry(sessionId = id, item = it.item)
+            } else it
+        }
+        persistCartRemote()
         currentUserId?.let { uid ->
             viewModelScope.launch {
                 try {
@@ -1077,6 +1235,3 @@ class FloorPlanViewModel(
         }
     }
 }
-
-
-

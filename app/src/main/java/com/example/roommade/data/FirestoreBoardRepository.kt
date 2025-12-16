@@ -14,6 +14,7 @@ interface BoardRepository {
     fun observeBoards(uid: String): Flow<List<FloorPlanViewModel.GeneratedBoard>>
     suspend fun upsert(uid: String, board: FloorPlanViewModel.GeneratedBoard)
     suspend fun clearAll(uid: String)
+    suspend fun delete(uid: String, boardId: String)
 }
 
 class FirestoreBoardRepository(
@@ -46,6 +47,10 @@ class FirestoreBoardRepository(
         val docs = boards(uid).get().await().documents
         docs.forEach { batch.delete(it.reference) }
         batch.commit().await()
+    }
+
+    override suspend fun delete(uid: String, boardId: String) {
+        boards(uid).document(boardId).delete().await()
     }
 }
 

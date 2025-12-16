@@ -15,6 +15,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -39,144 +41,156 @@ class MainActivity : ComponentActivity() {
                 Surface(color = MaterialTheme.colorScheme.background) {
                     val authVm: AuthViewModel = viewModel()
                     val user by authVm.user.collectAsState()
-                    if (user == null) {
-                        LoginScreen(
-                            vm = authVm,
-                            onSignedIn = { /* state is observed, nothing extra needed */ }
-                        )
-                    } else {
-                        val nav = rememberNavController()
-                        val backStack by nav.currentBackStackEntryAsState()
-                        val currentRoute = backStack?.destination?.route
-                        val context = LocalContext.current
-                        val vm: FloorPlanViewModel = viewModel(
-                            factory = FloorPlanViewModel.provideFactory(context)
-                        )
-                        LaunchedEffect(user?.uid) {
-                            user?.uid?.let { vm.attachUser(it) }
+                    val nav = rememberNavController()
+                    val backStack by nav.currentBackStackEntryAsState()
+                    val currentRoute = backStack?.destination?.route
+                    val context = LocalContext.current
+                    val showLoginDialog = remember { mutableStateOf(false) }
+                    val vm: FloorPlanViewModel = viewModel(
+                        factory = FloorPlanViewModel.provideFactory(context)
+                    )
+                    LaunchedEffect(user?.uid) {
+                        user?.uid?.let { vm.attachUser(it) }
+                        if (user != null) {
+                            showLoginDialog.value = false
                         }
-                        Scaffold(
-                            bottomBar = {
-                                NavigationBar {
-                                    bottomTabs.forEach { tab ->
-                                        NavigationBarItem(
-                                            selected = currentRoute?.startsWith(tab.route.path) == true,
-                                            onClick = {
-                                                when (tab.route) {
-                                                    Route.Start -> {
-                                                        nav.navigate(Route.Start.path) {
-                                                            popUpTo(Route.Start.path) { inclusive = true }
-                                                            launchSingleTop = true
-                                                            restoreState = false
-                                                        }
-                                                    }
-                                                    Route.RoomCategory -> {
-                                                        nav.navigate(Route.RoomCategory.path) {
-                                                            popUpTo(Route.Start.path) { inclusive = false }
-                                                            launchSingleTop = true
-                                                            restoreState = false
-                                                        }
-                                                    }
-                                                    else -> {
-                                                        nav.navigate(tab.route.path) {
-                                                            popUpTo(Route.Start.path) { saveState = true }
-                                                            launchSingleTop = true
-                                                            restoreState = true
-                                                        }
+                    }
+                    Scaffold(
+                        bottomBar = {
+                            NavigationBar {
+                                bottomTabs.forEach { tab ->
+                                    NavigationBarItem(
+                                        selected = currentRoute?.startsWith(tab.route.path) == true,
+                                        onClick = {
+                                            if (authVm.user.value == null && tab.route != Route.Start) {
+                                                showLoginDialog.value = true
+                                                return@NavigationBarItem
+                                            }
+                                            when (tab.route) {
+                                                Route.Start -> {
+                                                    nav.navigate(Route.Start.path) {
+                                                        popUpTo(Route.Start.path) { inclusive = true }
+                                                        launchSingleTop = true
+                                                        restoreState = false
                                                     }
                                                 }
-                                            },
-                                            icon = { Icon(tab.icon, contentDescription = tab.label) },
-                                            label = { Text(tab.label) }
-                                        )
-                                    }
-                                }
-                            }
-                        ) { innerPadding ->
-                            NavHost(
-                                navController = nav,
-                                startDestination = Route.Start.path,
-                                modifier = Modifier.padding(innerPadding)
-                            ) {
-                                fun navigateToShoppingWeb() {
-                                    val encoded = Uri.encode(vm.shoppingSearchQuery())
-                                    nav.navigate("${Route.ShoppingWeb.path}?query=$encoded")
-                                }
-                                composable(Route.Start.path) {
-                                    StartScreen(
-                                        onStartManual = { nav.navigate(Route.RoomCategory.path) }
-                                    )
-                                }
-                                composable(Route.RoomCategory.path) {
-                                    RoomCategoryScreen(
-                                        onNext = { nav.navigate(Route.Concept.path) },
-                                        onBack = { nav.popBackStack() },
-                                        vm = vm
-                                    )
-                                }
-                                composable(Route.Concept.path) {
-                                    ConceptInputScreen(
-                                        onNext = { nav.navigate(Route.ConceptAnalyzing.path) },
-                                        onBack = { nav.popBackStack() },
-                                        vm = vm
-                                    )
-                                }
-                                composable(Route.ConceptAnalyzing.path) {
-                                    ConceptAnalyzingScreen(
-                                        onAnalyzed = {
-                                            nav.navigate(Route.ConceptResult.path) {
-                                                popUpTo(Route.ConceptAnalyzing.path) { inclusive = true }
+                                                Route.RoomCategory -> {
+                                                    nav.navigate(Route.RoomCategory.path) {
+                                                        popUpTo(Route.Start.path) { inclusive = false }
+                                                        launchSingleTop = true
+                                                        restoreState = false
+                                                    }
+                                                }
+                                                else -> {
+                                                    nav.navigate(tab.route.path) {
+                                                        popUpTo(Route.Start.path) { saveState = true }
+                                                        launchSingleTop = true
+                                                        restoreState = true
+                                                    }
+                                                }
                                             }
                                         },
-                                        onCancel = { nav.popBackStack() },
-                                        vm = vm
+                                        icon = { Icon(tab.icon, contentDescription = tab.label) },
+                                        label = { Text(tab.label) }
                                     )
                                 }
-                                composable(Route.ConceptResult.path) {
-                                    ConceptResultScreen(
-                                        onSearch = { navigateToShoppingWeb() },
-                                        onBack = {
-                                            nav.popBackStack(Route.Concept.path, inclusive = false)
-                                        },
-                                        vm = vm
-                                    )
+                            }
+                        }
+                    ) { innerPadding ->
+                        NavHost(
+                            navController = nav,
+                            startDestination = Route.Start.path,
+                            modifier = Modifier.padding(innerPadding)
+                        ) {
+                            fun requireLoginThen(action: () -> Unit) {
+                                if (authVm.user.value == null) {
+                                    showLoginDialog.value = true
+                                } else {
+                                    action()
                                 }
-                                composable(
-                                    route = "${Route.ShoppingWeb.path}?query={query}",
-                                    arguments = listOf(
-                                        navArgument("query") {
-                                            type = NavType.StringType
-                                            defaultValue = ""
+                            }
+
+                            fun navigateToShoppingWeb() {
+                                val encoded = Uri.encode(vm.shoppingSearchQuery())
+                                nav.navigate("${Route.ShoppingWeb.path}?query=$encoded")
+                            }
+                            composable(Route.Start.path) {
+                                StartScreen(
+                                    onStartManual = {
+                                        requireLoginThen { nav.navigate(Route.RoomCategory.path) }
+                                    }
+                                )
+                            }
+                            composable(Route.RoomCategory.path) {
+                                RoomCategoryScreen(
+                                    onNext = { nav.navigate(Route.Concept.path) },
+                                    onBack = { nav.popBackStack() },
+                                    vm = vm
+                                )
+                            }
+                            composable(Route.Concept.path) {
+                                ConceptInputScreen(
+                                    onNext = { nav.navigate(Route.ConceptAnalyzing.path) },
+                                    onBack = { nav.popBackStack() },
+                                    vm = vm
+                                )
+                            }
+                            composable(Route.ConceptAnalyzing.path) {
+                                ConceptAnalyzingScreen(
+                                    onAnalyzed = {
+                                        nav.navigate(Route.ConceptResult.path) {
+                                            popUpTo(Route.ConceptAnalyzing.path) { inclusive = true }
                                         }
-                                    )
-                                ) { entry ->
-                                    val rawQuery = entry.arguments?.getString("query")?.let { Uri.decode(it) }.orEmpty()
-                                    ShoppingWebViewScreen(
-                                        query = rawQuery,
-                                        vm = vm,
-                                        onBack = { nav.popBackStack() },
-                                        onGoPlacement = { nav.navigate(Route.ExampleRoom.path) }
-                                    )
-                                }
-                                composable(Route.ExampleRoom.path) {
-                                    ExampleRoomSelectionScreen(
-                                        vm = vm,
-                                        onBack = { nav.popBackStack() },
-                                        onGenerate = { nav.navigate(Route.AiImage.path) }
-                                    )
-                                }
-                                composable(Route.AiImage.path) {
-                                    AiImageScreen(
-                                        vm = vm,
-                                        onBack = { nav.popBackStack() }
-                                    )
-                                }
-                                composable(Route.Cart.path) {
-                                    CartScreen(
-                                        vm = vm,
-                                        onSearchMore = { navigateToShoppingWeb() }
-                                    )
-                                }
+                                    },
+                                    onCancel = { nav.popBackStack() },
+                                    vm = vm
+                                )
+                            }
+                            composable(Route.ConceptResult.path) {
+                                ConceptResultScreen(
+                                    onSearch = { navigateToShoppingWeb() },
+                                    onBack = {
+                                        nav.popBackStack(Route.Concept.path, inclusive = false)
+                                    },
+                                    vm = vm
+                                )
+                            }
+                            composable(
+                                route = "${Route.ShoppingWeb.path}?query={query}",
+                                arguments = listOf(
+                                    navArgument("query") {
+                                        type = NavType.StringType
+                                        defaultValue = ""
+                                    }
+                                )
+                            ) { entry ->
+                                val rawQuery = entry.arguments?.getString("query")?.let { Uri.decode(it) }.orEmpty()
+                                ShoppingWebViewScreen(
+                                    query = rawQuery,
+                                    vm = vm,
+                                    onBack = { nav.popBackStack() },
+                                    onGoPlacement = { nav.navigate(Route.ExampleRoom.path) }
+                                )
+                            }
+                            composable(Route.ExampleRoom.path) {
+                                ExampleRoomSelectionScreen(
+                                    vm = vm,
+                                    onBack = { nav.popBackStack() },
+                                    onGenerate = { nav.navigate(Route.AiImage.path) }
+                                )
+                            }
+                            composable(Route.AiImage.path) {
+                                AiImageScreen(
+                                    vm = vm,
+                                    onBack = { nav.popBackStack() }
+                                )
+                            }
+                            composable(Route.Cart.path) {
+                                CartScreen(
+                                    vm = vm,
+                                    onSearchMore = { navigateToShoppingWeb() }
+                                )
+                            }
                                 composable(Route.Library.path) {
                                     LibraryScreen(
                                         vm = vm,
@@ -185,25 +199,33 @@ class MainActivity : ComponentActivity() {
                                                 popUpTo(Route.Start.path) { inclusive = false }
                                                 launchSingleTop = true
                                             }
+                                        },
+                                        onDelete = { board ->
+                                            vm.deleteBoard(board)
                                         }
                                     )
                                 }
-                                composable(Route.Settings.path) {
-                                    SettingsScreen(
-                                        userEmail = user?.email,
-                                        onSignOut = {
-                                            // 네비게이션 스택을 초기화하고 로그인 화면으로 전환되도록 사용자 상태를 null로 만든다.
-                                            nav.navigate(Route.Start.path) {
-                                                popUpTo(nav.graph.startDestinationId) { inclusive = true }
-                                                launchSingleTop = true
-                                                restoreState = false
-                                            }
-                                            authVm.signOut()
+                            composable(Route.Settings.path) {
+                                SettingsScreen(
+                                    userEmail = user?.email,
+                                    onSignOut = {
+                                        nav.navigate(Route.Start.path) {
+                                            popUpTo(nav.graph.startDestinationId) { inclusive = true }
+                                            launchSingleTop = true
+                                            restoreState = false
                                         }
-                                    )
-                                }
+                                        authVm.signOut()
+                                    }
+                                )
                             }
                         }
+                    }
+                    if (showLoginDialog.value && authVm.user.value == null) {
+                        LoginDialog(
+                            vm = authVm,
+                            onSignedIn = { showLoginDialog.value = false },
+                            onDismiss = { showLoginDialog.value = false }
+                        )
                     }
                 }
             }
